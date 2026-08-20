@@ -1,0 +1,44 @@
+version: "1.2"
+file_type: techniques-administration
+name: Endpoints
+date: 2026-08-20
+techniques:
+  - technique_id: T1059.001
+    technique_name: "Command and Scripting Interpreter: PowerShell"
+    detection:
+      - applicable_to: [all]
+        location: [SIEM: Encoded PowerShell]
+        score_logbook:
+          - date: 2026-01-10
+            score: 2
+          - date: 2026-03-01
+            score: 4
+    visibility:
+      - applicable_to: [all]
+        score_logbook:
+          - date: 2026-01-10
+            score: 3
+  - technique_id: T1003.001
+    technique_name: "OS Credential Dumping: LSASS Memory"
+    detection:
+      - applicable_to: [all]
+        location: [EDR: LSASS access]
+        score_logbook:
+          - date: 2026-02-01
+            score: 3
+  - technique_id: T1562.001
+    technique_name: "Impair Defenses: Disable or Modify Tools"
+    detection:
+      - applicable_to: [all]
+        location: []
+        score_logbook:
+          - date: 2026-01-01
+            score: 0
+  - technique_id: T1027
+    technique_name: "Obfuscated Files or Information"
+    detection:
+      - applicable_to: [all]
+        location: []
+        score_logbook:
+          - date: 2026-01-01
+            score: 1

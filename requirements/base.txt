@@ -51,3 +51,4 @@ cvss==3.6
 markdown==3.10.2
 spacy==3.8.11  # https://github.com/explosion/spaCy
 pgvector==0.3.6  # https://github.com/pgvector/pgvector-python
+PyYAML==6.0.3  # https://pyyaml.org/ — parses DeTT&CT YAML administration files (SETUP.md 11)

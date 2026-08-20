@@ -1,0 +1,36 @@
+{% extends "base_generic.html" %}
+
+{% load custom_tags %}
+
+{% block pagetitle %}DeTT&CT Run #{{ run.pk }}{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'dettct:index' %}">ATT&amp;CK Matrix</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Run #{{ run.pk }}</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="page-title mb-0">DeTT&amp;CT Run #{{ run.pk }}</h1>
+    <a class="btn btn-secondary icon back-icon" href="{% url 'dettct:index' %}">Back to Coverage</a>
+  </div>
+
+  <div class="alert alert-secondary">
+    <strong>Run at:</strong> {{ run.run_at|date:"DATE_FORMAT" }} at {{ run.run_at|time:"TIME_FORMAT" }}
+    <span class="text-muted">(imported {{ run.imported_at|date:"DATE_FORMAT" }})</span>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Raw Snapshot</div>
+    <div class="card-body">
+      <p><strong>File type:</strong> <code>{{ run.source_file_type }}</code></p>
+      <p><strong>Source file:</strong> <code>{{ run.output_file_path }}</code></p>
+      <pre class="bg-light p-3" style="max-height: 500px; overflow: auto;">{{ run.payload|pprint }}</pre>
+    </div>
+  </div>
+{% endblock %}

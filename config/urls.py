@@ -51,6 +51,7 @@ urlpatterns = [
     path("api/", include("ghostwriter.api.urls", namespace="api")),
     path("status/", include("ghostwriter.status.urls", namespace="status")),
     path("knowledge-base/", include("ghostwriter.knowledge_base.urls", namespace="knowledge_base")),
+    path("attack-matrix/", include("ghostwriter.dettct.urls", namespace="dettct")),
     # Add additional custom paths below this line...
     # Your stuff: custom urls includes go here
 ]

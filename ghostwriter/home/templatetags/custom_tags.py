@@ -3,6 +3,7 @@
 # Standard Libraries
 import logging
 from datetime import datetime, timedelta
+from pprint import pformat
 
 # Django Imports
 from django import template
@@ -258,6 +259,12 @@ def is_past(value):
     if timezone.is_naive(value):
         value = timezone.make_aware(value, timezone.get_current_timezone())
     return value < now
+
+
+@register.filter
+def pprint(value):
+    """Render a value with ``pprint.pformat`` for readable debug output."""
+    return pformat(value, indent=2, width=80)
 
 
 @register.filter(name="translate_domain_sid")

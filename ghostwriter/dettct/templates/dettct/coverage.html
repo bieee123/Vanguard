@@ -1,0 +1,182 @@
+{% extends "base_generic.html" %}
+
+{% load custom_tags %}
+
+{% block pagetitle %}ATT&CK Matrix &mdash; Long-term Coverage (DeTT&CT){% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item active" aria-current="page">ATT&amp;CK Matrix</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="page-title mb-0">Long-term Coverage (DeTT&amp;CT)</h1>
+    {% if request.user|is_privileged %}
+      <a class="btn btn-info icon refresh-icon" href="{% url 'dettct:index' %}">Refresh</a>
+    {% endif %}
+  </div>
+
+  {% if not latest_run %}
+    <div class="alert alert-warning">
+      No DeTT&amp;CT output has been imported yet. Run the import job to populate this panel:
+      <code>python manage.py import_dettct &lt;path/to/dettct-output.yaml&gt;</code>
+    </div>
+  {% else %}
+    <div class="alert alert-secondary">
+      <strong>Last updated:</strong> {{ latest_run.run_at|date:"DATE_FORMAT" }}
+      at {{ latest_run.run_at|time:"TIME_FORMAT" }}
+      <span class="text-muted">(imported {{ latest_run.imported_at|date:"DATE_FORMAT" }})</span>
+    </div>
+
+    <div class="row mb-4">
+      <div class="col-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="mb-0">{{ coverage_stats.total_techniques }}</h3>
+            <div class="text-muted">Techniques tracked</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="mb-0">{{ coverage_stats.covered_techniques }}</h3>
+            <div class="text-muted">Covered (score &ge; 3)</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="mb-0">{{ coverage_stats.data_source_count }}</h3>
+            <div class="text-muted">Data sources</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-3">
+        <div class="card text-center">
+          <div class="card-body">
+            <h3 class="mb-0">{{ coverage_stats.group_count }}</h3>
+            <div class="text-muted">Threat groups</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if data_sources %}
+      <div class="card mb-4">
+        <div class="card-header">Data-Source Visibility</div>
+        <div class="card-body p-0">
+          <table class="table table-sm table-hover mb-0">
+            <thead>
+              <tr>
+                <th class="align-middle text-left">Data source</th>
+                <th class="align-middle text-left">Products</th>
+                <th class="align-middle text-center">Connected</th>
+                <th class="align-middle text-center">Avg. quality</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for ds in data_sources %}
+                <tr>
+                  <td class="align-middle text-left">{{ ds.name }}</td>
+                  <td class="align-middle text-left">
+                    {% for product in ds.products %}<span class="badge badge-secondary mr-1">{{ product }}</span>{% endfor %}
+                  </td>
+                  <td class="align-middle text-center">
+                    {% if ds.connected %}<span class="badge badge-success">Connected</span>
+                    {% else %}<span class="badge badge-secondary">Not connected</span>{% endif %}
+                  </td>
+                  <td class="align-middle text-center">
+                    {% if ds.average_quality %}{{ ds.average_quality }}/5{% else %}&mdash;{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if techniques %}
+      <div class="card mb-4">
+        <div class="card-header">Technique Coverage</div>
+        <div class="card-body p-0">
+          <table class="table table-sm table-hover mb-0">
+            <thead>
+              <tr>
+                <th class="align-middle text-left">Technique</th>
+                <th class="align-middle text-left">Name</th>
+                <th class="align-middle text-center">Detection score</th>
+                <th class="align-middle text-center">Visibility score</th>
+                <th class="align-middle text-center">Detections</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for technique in techniques %}
+                <tr>
+                  <td class="align-middle text-left">
+                    <a href="https://attack.mitre.org/techniques/{{ technique.technique_id }}/" target="_blank" rel="noopener">{{ technique.technique_id }}</a>
+                  </td>
+                  <td class="align-middle text-left">{{ technique.name }}</td>
+                  <td class="align-middle text-center">
+                    {% if technique.detection_score %}
+                      {% if technique.detection_score >= 3 %}
+                        <span class="badge badge-success">{{ technique.detection_score }}</span>
+                      {% elif technique.detection_score >= 1 %}
+                        <span class="badge badge-warning">{{ technique.detection_score }}</span>
+                      {% else %}
+                        <span class="badge badge-secondary">{{ technique.detection_score }}</span>
+                      {% endif %}
+                    {% else %}&mdash;{% endif %}
+                  </td>
+                  <td class="align-middle text-center">
+                    {% if technique.visibility_score %}{{ technique.visibility_score }}{% else %}&mdash;{% endif %}
+                  </td>
+                  <td class="align-middle text-center">{{ technique.detection_count }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if groups %}
+      <div class="card mb-4">
+        <div class="card-header">Threat-Group TTP Coverage</div>
+        <div class="card-body p-0">
+          {% for group in groups %}
+            <div class="border-bottom p-3">
+              <h5 class="mb-2">
+                {{ group.group_name }}
+                {% if group.campaign %}<span class="text-muted small">({{ group.campaign }})</span>{% endif %}
+              </h5>
+              {% if group.technique_ids %}
+                {% for technique_id in group.technique_ids %}
+                  {% if technique_id|stringformat:"s" in techniques_by_id %}
+                    <span class="badge badge-success mr-1">{{ technique_id }} (covered)</span>
+                  {% else %}
+                    <span class="badge badge-secondary mr-1">{{ technique_id }}</span>
+                  {% endif %}
+                {% endfor %}
+              {% else %}
+                <span class="text-muted">No techniques listed for this group.</span>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="text-muted small">
+      Source file: <code>{{ latest_run.output_file_path }}</code>
+      (<a href="{% url 'dettct:run_detail' latest_run.pk %}">view raw snapshot</a>)
+    </div>
+  {% endif %}
+{% endblock %}

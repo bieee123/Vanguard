@@ -131,6 +131,7 @@ LOCAL_APPS = [
     "ghostwriter.singleton.apps.SingletonConfig",
     "ghostwriter.assets.apps.AssetsConfig",
     "ghostwriter.knowledge_base.apps.KnowledgeBaseConfig",
+    "ghostwriter.dettct.apps.DettctConfig",
     "ghostwriter.api.apps.ApiConfig",
     "ghostwriter.status.apps.StatusConfig",
 ]
@@ -419,6 +420,16 @@ VANGUARD_EMBEDDING_ENDPOINT = env("VANGUARD_EMBEDDING_ENDPOINT", default="")
 VANGUARD_EMBEDDING_API_KEY = env("VANGUARD_EMBEDDING_API_KEY", default="")
 VANGUARD_EMBEDDING_CHUNK_SIZE = env.int("VANGUARD_EMBEDDING_CHUNK_SIZE", 2000)
 
+# VANGUARD DETT&CT
+# ------------------------------------------------------------------------------
+# PRD 1.1 / SETUP.md 11 — DeTT&CT runs as a standalone scheduled job that writes
+# its YAML/JSON output to a known path. Vanguard only reads that output file.
+# The output path below is what the import task/command consumes; the optional
+# command is what the scheduled job uses to invoke DeTT&CT itself (if hosted on
+# the same host as the Django container). Neither embeds DeTT&CT source.
+VANGUARD_DETTCT_OUTPUT_PATH = env("VANGUARD_DETTCT_OUTPUT_PATH", default="")
+VANGUARD_DETTCT_COMMAND = env("VANGUARD_DETTCT_COMMAND", default="")
+
 # DJANGO Q
 # ------------------------------------------------------------------------------
 
@@ -539,6 +550,18 @@ GHOSTWRITER_DJANGO_Q_SCHEDULE_TASKS = {
         "args": [],
         "kwargs": {},
     },
+    "ghostwriter.dettct.tasks.import_dettct_output": {
+        "label": "Import DeTT&CT Output",
+        "args": [
+            {
+                "name": "output_path",
+                "type": "str",
+                "nullable": True,
+                "required": False,
+            }
+        ],
+        "kwargs": {"output_path": {"type": "str", "nullable": True}},
+    },
 }
 
 # These tasks are queued by Ghostwriter itself. They are accepted by the queue
@@ -551,6 +574,7 @@ GHOSTWRITER_DJANGO_Q_INTERNAL_TASKS = {
     "ghostwriter.shepherd.tasks.test_slack_webhook": {"allow_any_arguments": True},
     "ghostwriter.shepherd.tasks.test_virustotal": {"allow_any_arguments": True},
     "ghostwriter.knowledge_base.tasks.embed_note": {"allow_any_arguments": True},
+    "ghostwriter.dettct.tasks.import_dettct_output": {"allow_any_arguments": True},
 }
 
 # Hooks have their own execution path in Django Q and must be independently
