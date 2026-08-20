@@ -1,0 +1,738 @@
+"""
+Base settings to build other settings files upon.
+"""
+# Standard Libraries
+from datetime import timedelta
+from pathlib import Path
+
+# Django Imports
+from django.contrib.messages import constants as messages
+
+# 3rd Party Libraries
+import environ
+
+__version__ = "7.2.6"
+VERSION = __version__
+RELEASE_DATE = "10 August 2026"
+
+ROOT_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
+APPS_DIR = ROOT_DIR / "ghostwriter"
+
+env = environ.Env()
+
+READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)
+if READ_DOT_ENV_FILE:
+    # OS environment variables take precedence over variables from .env
+    env.read_env(str(ROOT_DIR / ".env"))
+
+# Vanguard is built for single-company, internal red team use. Multi-client
+# (consulting) features are hidden behind this flag so they can be re-enabled
+# if the workflow ever needs them. When False (default), client management UI
+# is hidden and projects bind to a single default client.
+CONSULTING_MODE = env.bool("VANGUARD_CONSULTING_MODE", False)
+
+
+def env_float(name, default):
+    """Read a float env var while treating unset or empty values as default."""
+    value = env(name, default=default)
+    if value == "":
+        value = default
+    return float(value)
+
+# GENERAL
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#debug
+DEBUG = env.bool("DJANGO_DEBUG", False)
+# Local time zone – Choices are:
+#   http://en.wikipedia.org/wiki/List_of_tz_zones_by_name
+#   Not all of them may be available with every OS
+#   In Windows, this must be set to your system time zone
+TIME_ZONE = "UTC"
+# https://docs.djangoproject.com/en/dev/ref/settings/#language-code
+LANGUAGE_CODE = "en-us"
+# https://docs.djangoproject.com/en/dev/ref/settings/#site-id
+SITE_ID = 1
+# https://docs.djangoproject.com/en/dev/ref/settings/#use-i18n
+USE_I18N = True
+# https://docs.djangoproject.com/en/4.0/ref/settings/#date-format
+DATE_FORMAT = env(
+    "DJANGO_DATE_FORMAT",
+    default="d M Y",
+)
+# https://docs.djangoproject.com/en/dev/ref/settings/#use-tz
+USE_TZ = True
+# https://docs.djangoproject.com/en/dev/ref/settings/#locale-paths
+LOCALE_PATHS = [str(ROOT_DIR / "locale")]
+# https://docs.djangoproject.com/en/dev/ref/settings/#csrf-trusted-origins
+origins = env("DJANGO_CSRF_TRUSTED_ORIGINS", default="")
+if origins:
+    CSRF_TRUSTED_ORIGINS = origins.split(" ")
+
+# DATABASES
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#databases
+DATABASES = {"default": env.db("DATABASE_URL")}
+DATABASES["default"]["ATOMIC_REQUESTS"] = True
+# https://docs.djangoproject.com/en/stable/ref/settings/#std:setting-DEFAULT_AUTO_FIELD
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# URLS
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#root-urlconf
+ROOT_URLCONF = "config.urls"
+# https://docs.djangoproject.com/en/dev/ref/settings/#wsgi-application
+WSGI_APPLICATION = "config.wsgi.application"
+
+# APPS
+# ------------------------------------------------------------------------------
+DJANGO_APPS = [
+    "channels",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.sites",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django.contrib.humanize",
+    "django.contrib.admin",
+    "django.contrib.admindocs",
+    "django.contrib.postgres",
+]
+
+THIRD_PARTY_APPS = [
+    "crispy_forms",
+    "crispy_bootstrap4",
+    "allauth",
+    "allauth.mfa",
+    "allauth.account",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
+    "allauth.socialaccount",
+    "rest_framework",
+    "rest_framework_api_key",
+    "django_q",
+    "django_filters",
+    "import_export",
+    "django_bleach",
+    "timezone_field",
+    "health_check",
+    "taggit",
+]
+
+LOCAL_APPS = [
+    "ghostwriter.users.apps.UsersConfig",
+    "ghostwriter.home.apps.HomeConfig",
+    "ghostwriter.rolodex.apps.RolodexConfig",
+    "ghostwriter.shepherd.apps.ShepherdConfig",
+    "ghostwriter.reporting.apps.ReportingConfig",
+    "ghostwriter.oplog.apps.OplogConfig",
+    "ghostwriter.commandcenter.apps.CommandCenterConfig",
+    "ghostwriter.singleton.apps.SingletonConfig",
+    "ghostwriter.assets.apps.AssetsConfig",
+    "ghostwriter.knowledge_base.apps.KnowledgeBaseConfig",
+    "ghostwriter.api.apps.ApiConfig",
+    "ghostwriter.status.apps.StatusConfig",
+]
+
+# https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
+INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
+
+# CHANNELS & WEBSOCKETS
+# ------------------------------------------------------------------------------
+# https://channels.readthedocs.io/en/stable/installation.html
+ASGI_APPLICATION = "config.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("redis", 6379)],
+        },
+    },
+}
+
+# MIGRATIONS
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#migration-modules
+MIGRATION_MODULES = {"sites": "ghostwriter.contrib.sites.migrations"}
+
+# AUTHENTICATION
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#authentication-backends
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
+# https://docs.djangoproject.com/en/dev/ref/settings/#auth-user-model
+AUTH_USER_MODEL = "users.User"
+# https://docs.djangoproject.com/en/dev/ref/settings/#login-redirect-url
+LOGIN_REDIRECT_URL = "home:dashboard"
+# https://docs.djangoproject.com/en/dev/ref/settings/#login-url
+LOGIN_URL = "account_login"
+
+# PASSWORDS
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#password-hashers
+PASSWORD_HASHERS = [
+    # https://docs.djangoproject.com/en/dev/topics/auth/passwords/#using-argon2-with-django
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+]
+# https://docs.djangoproject.com/en/dev/ref/settings/#auth-password-validators
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+# MIDDLEWARE
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#middleware
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django_otp.middleware.OTPMiddleware",
+    "ghostwriter.middleware.RequireMFAMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
+]
+
+# STATIC
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#static-root
+STATIC_ROOT = str(ROOT_DIR / "staticfiles")
+# https://docs.djangoproject.com/en/dev/ref/settings/#static-url
+STATIC_URL = "/static/"
+# https://docs.djangoproject.com/en/dev/ref/contrib/staticfiles/#std:setting-STATICFILES_DIRS
+STATICFILES_DIRS = [
+    str(APPS_DIR / "static"),
+]
+# https://docs.djangoproject.com/en/dev/ref/contrib/staticfiles/#staticfiles-finders
+STATICFILES_FINDERS = [
+    "django.contrib.staticfiles.finders.FileSystemFinder",
+    "django.contrib.staticfiles.finders.AppDirectoriesFinder",
+]
+
+# MEDIA
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#media-root
+MEDIA_ROOT = str(APPS_DIR / "media")
+# https://docs.djangoproject.com/en/dev/ref/settings/#media-url
+MEDIA_URL = "/media/"
+# Default location for report templates
+TEMPLATE_LOC = str(APPS_DIR / "media" / "templates")
+
+# TEMPLATES
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#templates
+TEMPLATES = [
+    {
+        # https://docs.djangoproject.com/en/dev/ref/settings/#std:setting-TEMPLATES-BACKEND
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        # https://docs.djangoproject.com/en/dev/ref/settings/#template-dirs
+        "DIRS": [str(APPS_DIR / "templates")],
+        # https://docs.djangoproject.com/en/4.2/ref/settings/#app-dirs
+        "APP_DIRS": True,
+        "OPTIONS": {
+            # https://docs.djangoproject.com/en/dev/ref/settings/#template-context-processors
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.template.context_processors.i18n",
+                "django.template.context_processors.media",
+                "django.template.context_processors.static",
+                "django.template.context_processors.tz",
+                "django.contrib.messages.context_processors.messages",
+                "ghostwriter.context_processors.selected_settings",
+            ],
+        },
+    }
+]
+# http://django-crispy-forms.readthedocs.io/en/latest/install.html#template-packs
+CRISPY_ALLOWED_TEMPLATE_PACKS = ("bootstrap4",)
+CRISPY_TEMPLATE_PACK = "bootstrap4"
+
+# FIXTURES
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#fixture-dirs
+FIXTURE_DIRS = (str(APPS_DIR / "fixtures"),)
+
+# SECURITY
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#session-cookie-httponly
+SESSION_COOKIE_HTTPONLY = True
+# https://docs.djangoproject.com/en/3.2/ref/settings/#session-cookie-age
+SESSION_COOKIE_AGE = env("DJANGO_SESSION_COOKIE_AGE", default=60 * 60 * 2)
+# https://docs.djangoproject.com/en/3.2/ref/settings/#session-expire-at-browser-close
+SESSION_EXPIRE_AT_BROWSER_CLOSE = env("DJANGO_SESSION_EXPIRE_AT_BROWSER_CLOSE", default=True)
+# https://docs.djangoproject.com/en/3.2/topics/http/sessions/#when-sessions-are-saved
+SESSION_SAVE_EVERY_REQUEST = env("DJANGO_SESSION_SAVE_EVERY_REQUEST", default=True)
+# https://docs.djangoproject.com/en/3.2/ref/settings/#session-cookie-secure
+SESSION_COOKIE_SECURE = env("DJANGO_SESSION_COOKIE_SECURE", default=False)
+# https://docs.djangoproject.com/en/dev/ref/settings/#csrf-cookie-httponly
+CSRF_COOKIE_HTTPONLY = True
+# https://docs.djangoproject.com/en/3.2/ref/settings/#csrf-cookie-secure
+CSRF_COOKIE_SECURE = env("DJANGO_CSRF_COOKIE_SECURE", default=False)
+# https://docs.djangoproject.com/en/dev/ref/settings/#x-frame-options
+X_FRAME_OPTIONS = "SAMEORIGIN"
+
+# EMAIL
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#email-backend
+EMAIL_BACKEND = env("DJANGO_EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# https://docs.djangoproject.com/en/2.2/ref/settings/#email-timeout
+EMAIL_TIMEOUT = 5
+
+# ADMIN
+# ------------------------------------------------------------------------------
+# Django Admin URL
+ADMIN_URL = "admin/"
+# https://docs.djangoproject.com/en/dev/ref/settings/#admins
+ADMINS = []
+# https://docs.djangoproject.com/en/dev/ref/settings/#managers
+MANAGERS = ADMINS
+
+# LOGGING
+# ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#logging
+# See https://docs.djangoproject.com/en/dev/topics/logging for
+# more details on how to customize your logging configuration.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"verbose": {"format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s"}},
+    "handlers": {
+        "console": {
+            "level": "DEBUG",
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {"level": "INFO", "handlers": ["console"]},
+}
+
+# django-health-check
+# ------------------------------------------------------------------------------
+# These values are surfaced in Compose files and the Ghostwriter CLI. Keep them
+# in settings so administrators control detailed health-check thresholds rather
+# than falling back to django-health-check library defaults.
+HEALTH_CHECK = {
+    # Percent of disk usage that triggers a warning.
+    "DISK_USAGE_MAX": env_float("HEALTHCHECK_DISK_USAGE_MAX", 90),
+    # Minimum available memory in MB that triggers a warning.
+    "MEMORY_MIN": env_float("HEALTHCHECK_MEM_MIN", 100),
+}
+
+# django-allauth-mfa
+# ------------------------------------------------------------------------------
+
+# settings for django-allauth MFA
+MFA_ADAPTER = "allauth.mfa.adapter.DefaultMFAAdapter"
+
+# Make sure "webauthn" is included.
+# https://docs.allauth.org/en/dev/mfa/webauthn.html
+MFA_SUPPORTED_TYPES = ["totp", "webauthn", "recovery_codes"]
+
+# Ghostwriter deployments often cannot rely on email verification, and MFA setup
+# should not be blocked by an unverified email address.
+MFA_ALLOW_UNVERIFIED_EMAIL = env.bool("DJANGO_MFA_ALLOW_UNVERIFIED_EMAIL", True)
+
+# Enable support for logging in using a (WebAuthn) passkey.
+# https://docs.allauth.org/en/dev/mfa/webauthn.html
+MFA_PASSKEY_LOGIN_ENABLED = env.bool("DJANGO_MFA_PASSKEY_LOGIN_ENABLED", True)
+
+# django-allauth-mfa forms
+# https://docs.allauth.org/en/dev/mfa/configuration.html
+MFA_FORMS = {
+    "authenticate": "ghostwriter.users.forms.UserMFAAuthenticateForm",
+    "reauthenticate": "allauth.mfa.base.forms.AuthenticateForm",
+    "activate_totp": "ghostwriter.users.forms.UserMFADeviceForm",
+    "deactivate_totp": "ghostwriter.users.forms.UserMFADeviceRemoveForm",
+    "generate_recovery_codes": "allauth.mfa.recovery_codes.forms.GenerateRecoveryCodesForm",
+
+}
+
+MFA_REVEAL_TOKENS = env.bool("DJANGO_MFA_ALWAYS_REVEAL_BACKUP_TOKENS", False)
+
+# Override the default django-allauth reauthentication timeout setting.
+# This controls how long allauth considers recent authentication fresh enough
+# for sensitive account-management actions. It is intentionally configurable
+# separately from SESSION_COOKIE_AGE.
+# https://docs.allauth.org/en/dev/account/configuration.html
+ACCOUNT_REAUTHENTICATION_TIMEOUT = env.int("DJANGO_ACCOUNT_REAUTHENTICATION_TIMEOUT", 32400)  # 9 hours
+
+ACCOUNT_ALLOW_REGISTRATION = env.bool("DJANGO_ACCOUNT_ALLOW_REGISTRATION", False)
+SOCIAL_ACCOUNT_ALLOW_REGISTRATION = env.bool("DJANGO_SOCIAL_ACCOUNT_ALLOW_REGISTRATION", False)
+SOCIAL_ACCOUNT_DOMAIN_ALLOWLIST = env("DJANGO_SOCIAL_ACCOUNT_DOMAIN_ALLOWLIST", default="")
+SOCIALACCOUNT_LOGIN_ON_GET = env.bool("DJANGO_SOCIAL_ACCOUNT_LOGIN_ON_GET", False)
+# https://docs.allauth.org/en/dev/account/configuration.html
+ACCOUNT_LOGIN_METHODS = {"username"}
+# https://docs.allauth.org/en/dev/account/configuration.html
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
+# https://docs.allauth.org/en/dev/account/configuration.html
+ACCOUNT_EMAIL_VERIFICATION = env.bool("DJANGO_ACCOUNT_EMAIL_VERIFICATION", "mandatory")
+# https://docs.allauth.org/en/dev/account/configuration.html
+ACCOUNT_ADAPTER = "ghostwriter.users.adapters.AccountAdapter"
+# https://docs.allauth.org/en/dev/account/configuration.html
+SOCIALACCOUNT_ADAPTER = "ghostwriter.users.adapters.SocialAccountAdapter"
+ACCOUNT_SIGNUP_FORM_CLASS = "ghostwriter.home.forms.SignupForm"
+ACCOUNT_FORMS = {
+    "login": "ghostwriter.users.forms.UserLoginForm",
+    "signup": "ghostwriter.users.forms.UserSignupForm",
+}
+
+# django-compressor
+# ------------------------------------------------------------------------------
+# https://django-compressor.readthedocs.io/en/latest/quickstart/#installation
+INSTALLED_APPS += ["compressor"]
+STATICFILES_FINDERS += ["compressor.finders.CompressorFinder"]
+
+# DJANGO MESSAGES
+# ------------------------------------------------------------------------------
+MESSAGE_TAGS = {
+    messages.INFO: "alert alert-info",
+    messages.SUCCESS: "alert alert-success",
+    messages.WARNING: "alert alert-warning",
+    messages.ERROR: "alert alert-danger",
+}
+
+# VANGUARD KNOWLEDGE BASE
+# ------------------------------------------------------------------------------
+# PRD 5.14 — notes are chunked and embedded into the same PostgreSQL database
+# via pgvector. The embedding model is not finalized (DeepSeek V4 proposed), so
+# the model name/endpoint stay config values rather than hardcoded providers.
+VANGUARD_EMBEDDING_DIMENSIONS = env.int("VANGUARD_EMBEDDING_DIMENSIONS", 1536)
+VANGUARD_EMBEDDING_MODEL = env("VANGUARD_EMBEDDING_MODEL", default="")
+VANGUARD_EMBEDDING_ENDPOINT = env("VANGUARD_EMBEDDING_ENDPOINT", default="")
+VANGUARD_EMBEDDING_API_KEY = env("VANGUARD_EMBEDDING_API_KEY", default="")
+VANGUARD_EMBEDDING_CHUNK_SIZE = env.int("VANGUARD_EMBEDDING_CHUNK_SIZE", 2000)
+
+# DJANGO Q
+# ------------------------------------------------------------------------------
+
+# Settings to be aware of:
+
+# save_limit: Limits the amount of successful tasks saved to Django. Set to 35
+# for roughly one month of daily tasks and some domain check-ups.
+
+# timeout: The number of seconds a worker is allowed to spend on a task before
+# it’s terminated. Defaults to None, meaning it will never time out. Can be
+# overridden for individual tasks. Not set globally here because DNS and
+# health checks can take a long time and will be different for everyone.
+
+Q_CLUSTER = {
+    "name": env("DJANGO_QCLUSTER_NAME", default="soar"),
+    "timeout": 43200,
+    "retry": 43200,
+    "recycle": 500,
+    "save_limit": 35,
+    "queue_limit": 500,
+    "cpu_affinity": 1,
+    "label": "Django Q",
+    "redis": env("QCLUSTER_CONNECTION", default={"host": "redis", "port": 6379, "db": 0}),
+}
+
+# Only tasks in this server-side policy can be created through the Django Q
+# schedule admin. Deployments can replace or extend this dictionary from a
+# settings fragment in ``production.d``. Argument specifications are enforced
+# when a schedule is saved, when it is enqueued, and again by the queue worker.
+GHOSTWRITER_DJANGO_Q_SCHEDULE_TASKS = {
+    "ghostwriter.reporting.tasks.archive_projects": {
+        "label": "Archive Completed Projects",
+        "args": [],
+        "kwargs": {},
+    },
+    "ghostwriter.rolodex.tasks.check_project_freshness": {
+        "label": "Check Project Freshness",
+        "args": [],
+        "kwargs": {},
+    },
+    "ghostwriter.shepherd.tasks.check_domains": {
+        "label": "Check Domain Categorization",
+        "args": [
+            {
+                "name": "domain_id",
+                "type": "int",
+                "nullable": True,
+                "min": 1,
+                "required": False,
+            }
+        ],
+        "kwargs": {"domain_id": {"type": "int", "nullable": True, "min": 1}},
+    },
+    "ghostwriter.shepherd.tasks.check_expiration": {
+        "label": "Check Domain Expiration",
+        "args": [],
+        "kwargs": {},
+    },
+    "ghostwriter.shepherd.tasks.fetch_namecheap_domains": {
+        "label": "Synchronize Namecheap Domains",
+        "args": [],
+        "kwargs": {},
+    },
+    "ghostwriter.shepherd.tasks.release_domains": {
+        "label": "Release Domains",
+        "args": [{"name": "no_action", "type": "bool", "required": False}],
+        "kwargs": {"no_action": {"type": "bool"}},
+    },
+    "ghostwriter.shepherd.tasks.release_servers": {
+        "label": "Release Servers",
+        "args": [{"name": "no_action", "type": "bool", "required": False}],
+        "kwargs": {"no_action": {"type": "bool"}},
+    },
+    "ghostwriter.shepherd.tasks.review_cloud_infrastructure": {
+        "label": "Review Cloud Infrastructure",
+        "args": [
+            {"name": "aws_only_running", "type": "bool", "required": False},
+            {"name": "do_only_running", "type": "bool", "required": False},
+        ],
+        "kwargs": {
+            "aws_only_running": {"type": "bool"},
+            "do_only_running": {"type": "bool"},
+        },
+    },
+    "ghostwriter.shepherd.tasks.scan_servers": {
+        "label": "Scan Servers",
+        "args": [{"name": "only_active", "type": "bool", "required": False}],
+        "kwargs": {"only_active": {"type": "bool"}},
+    },
+    "ghostwriter.shepherd.tasks.update_dns": {
+        "label": "Update DNS Records",
+        "args": [
+            {
+                "name": "domain",
+                "type": "int",
+                "nullable": True,
+                "min": 1,
+                "required": False,
+            }
+        ],
+        "kwargs": {"domain": {"type": "int", "nullable": True, "min": 1}},
+    },
+    "ghostwriter.modules.oplog_monitors.review_active_logs": {
+        "label": "Review Active Operation Logs",
+        "args": [
+            {
+                "name": "hours",
+                "type": "int",
+                "min": 1,
+                "max": 8760,
+                "required": False,
+            }
+        ],
+        "kwargs": {"hours": {"type": "int", "min": 1, "max": 8760}},
+    },
+    "ghostwriter.home.django_q_tasks.clear_expired_sessions": {
+        "label": "Clear Expired Sessions",
+        "args": [],
+        "kwargs": {},
+    },
+}
+
+# These tasks are queued by Ghostwriter itself. They are accepted by the queue
+# worker but are intentionally omitted from the schedule admin choices.
+GHOSTWRITER_DJANGO_Q_INTERNAL_TASKS = {
+    "ghostwriter.shepherd.tasks.namecheap_reset_dns": {"allow_any_arguments": True},
+    "ghostwriter.shepherd.tasks.test_aws_keys": {"allow_any_arguments": True},
+    "ghostwriter.shepherd.tasks.test_digital_ocean": {"allow_any_arguments": True},
+    "ghostwriter.shepherd.tasks.test_namecheap": {"allow_any_arguments": True},
+    "ghostwriter.shepherd.tasks.test_slack_webhook": {"allow_any_arguments": True},
+    "ghostwriter.shepherd.tasks.test_virustotal": {"allow_any_arguments": True},
+    "ghostwriter.knowledge_base.tasks.embed_note": {"allow_any_arguments": True},
+}
+
+# Hooks have their own execution path in Django Q and must be independently
+# constrained. The built-in Slack completion hook is safe to expose to schedules.
+GHOSTWRITER_DJANGO_Q_INTERNAL_HOOKS = {
+    "ghostwriter.modules.notifications_slack.send_slack_complete_msg": {
+        "label": "Send Slack Completion Message"
+    }
+}
+GHOSTWRITER_DJANGO_Q_SCHEDULE_HOOKS = {
+    "ghostwriter.modules.notifications_slack.send_slack_complete_msg": {
+        "label": "Send Slack Completion Message"
+    }
+}
+
+# Optional fixed commands configured by a server operator. When this mapping is
+# non-empty, the schedule admin exposes the restricted command runner. Each
+# command must use a fixed absolute argv and is always executed with shell=False.
+GHOSTWRITER_DJANGO_Q_COMMANDS = {}
+
+# SETTINGS
+# ------------------------------------------------------------------------------
+# All settings are stored in singleton models in the CommandCenter app
+# Settings can be cached to avoid repeated database queries
+
+# The cache that should be used, e.g. 'default'
+# Set to ``None`` to disable caching
+# Ghostwriter does not use a cache by default
+SOLO_CACHE = None
+SOLO_CACHE_TIMEOUT = 60 * 5
+SOLO_CACHE_PREFIX = "solo"
+
+# BLEACH
+# ------------------------------------------------------------------------------
+# Which HTML tags are allowed
+BLEACH_ALLOWED_TAGS = [
+    "code",
+    "span",
+    "p",
+    "ul",
+    "ol",
+    "li",
+    "a",
+    "em",
+    "strong",
+    "u",
+    "b",
+    "i",
+    "pre",
+    "sub",
+    "sup",
+    "del",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "br",
+    "table",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "thead",
+    "tfoot",
+    "caption",
+]
+# Which HTML attributes are allowed, keyed by tag name.
+# The "*" wildcard applies to every allowed tag.
+BLEACH_ALLOWED_ATTRIBUTES = {
+    "*": ["class", "style"],
+    "a": ["href", "title", "target", "rel"],
+    "img": ["src", "alt", "width", "height"],
+    "td": ["colspan", "rowspan", "scope"],
+    "th": ["colspan", "rowspan", "scope"],
+}
+# Which CSS properties are allowed in 'style' attributes (assuming style is an allowed attribute)
+BLEACH_ALLOWED_STYLES = [
+    "color",
+    "background-color",
+    "font-family",
+    "font-weight",
+    "text-decoration",
+    "font-variant",
+    "border",
+]
+# Which protocols (and pseudo-protocols) are allowed in 'src' attributes (assuming src is an allowed attribute)
+BLEACH_ALLOWED_PROTOCOLS = ["http", "https", "data"]
+# Strip unknown tags if True, replace with HTML escaped characters if False
+BLEACH_STRIP_TAGS = True
+# Strip HTML comments, or leave them in.
+BLEACH_STRIP_COMMENTS = True
+
+# Ghostwriter API Configuration
+# ------------------------------------------------------------------------------
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        # 'rest_framework.authentication.TokenAuthentication',
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+        # 'rest_framework_api_key.permissions.HasAPIKey',
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
+    "PAGE_SIZE": 100,
+}
+
+GRAPHQL_JWT = {
+    "JWT_AUTH_HEADER_PREFIX": "Bearer",
+    "JWT_VERIFY": True,
+    "JWT_VERIFY_EXPIRATION": True,
+    "JWT_LONG_RUNNING_REFRESH_TOKEN": True,
+    "JWT_EXPIRATION_DELTA": timedelta(minutes=15),
+    "JWT_REFRESH_EXPIRATION_DELTA": timedelta(days=7),
+    "JWT_AUDIENCE": "Vanguard",
+    "JWT_SECRET_KEY": env(
+        "DJANGO_JWT_SECRET_KEY",
+        default="Vso7i8BApwA6km4L50PFRvqcTtGZHLrC1pnKLCXqfTWifhjbGq4nTd6ZrDH2Iobe",
+    ),
+    "JWT_ALGORITHM": "HS256",
+}
+
+HASURA_ACTION_SECRET = env("HASURA_ACTION_SECRET")
+
+GRAPHQL_HOST = env("HASURA_GRAPHQL_SERVER_HOSTNAME", default="graphql_engine")
+
+# Maximum file size (bytes) for API uploads and inline base64 download responses
+# Uploads exceeding this limit are rejected with 413 during request parsing
+# Downloads exceeding this limit are rejected with 413 before the file is read
+# Admins can override via the ``GHOSTWRITER_MAX_FILE_SIZE`` environment variable
+GHOSTWRITER_MAX_FILE_SIZE = env.int("GHOSTWRITER_MAX_FILE_SIZE", default=10 * 1024 * 1024)  # 10 MB
+
+REDIS_URL = env("REDIS_URL", default="redis://redis:6379")
+
+# Tagging
+# ------------------------------------------------------------------------------
+TAGGIT_CASE_INSENSITIVE = True
+
+# spaCy NLP Configuration
+# ------------------------------------------------------------------------------
+# https://spacy.io/usage/models
+SPACY_MODEL = env("SPACY_MODEL", default="en_core_web_sm")
+SPACY_MAX_TEXT_LENGTH = env.int("SPACY_MAX_TEXT_LENGTH", default=100000)
+
+
+def include_settings(py_glob):
+    """
+    Includes a glob of Python settings files.
+    The files will be sorted alphabetically.
+    """
+    import sys
+    import os
+    import glob
+    from importlib.util import module_from_spec, spec_from_file_location
+
+    # Get caller's global scope
+    scope = sys._getframe(1).f_globals
+
+    including_path = scope["__file__"].rstrip("c")
+    including_dir = os.path.dirname(including_path)
+    py_glob_rel = os.path.join(including_dir, py_glob)
+
+    for relpath in sorted(glob.glob(py_glob_rel)):
+        # Read and execute files
+        with open(relpath, "rb") as f:
+            contents = f.read()
+        compiled = compile(contents, relpath, "exec")
+        # Use of `exec` is typically dangerous, but we're only executing our own settings files
+        # The settings files are user controlled, but any danger represented by executing them also applies to executing the main settings files
+        # The primary concern is an admin could unwittingly execute a malicious settings file they did not realize was present
+        # However, an admin could also unwittingly run a malicious command in the main settings file
+        exec(compiled, scope)
+
+        # Adds dummy module to sys.modules so runserver will reload if they change
+        rel_path = os.path.relpath(including_path)
+        module_name = "_settings_include.{0}".format(
+            rel_path[: rel_path.rfind(".")].replace("/", "."),
+        )
+
+        spec = spec_from_file_location(module_name, including_path)
+        module = module_from_spec(spec)
+        sys.modules[module_name] = module

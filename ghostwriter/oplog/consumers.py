@@ -1,0 +1,316 @@
+"""This contains all the WebSocket consumers used by the Oplog application."""
+
+# Standard Libraries
+import json
+import logging
+from copy import deepcopy
+from functools import reduce
+
+# Django Imports
+from django.db.models import TextField, Func, Subquery, OuterRef, Value, F
+from django.db.models.functions import Cast, Left
+from django.db.models.expressions import CombinedExpression
+from django.utils import timezone
+from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank, SearchVectorField
+
+# 3rd Party Libraries
+from channels.db import database_sync_to_async
+from channels.generic.websocket import AsyncWebsocketConsumer
+from rest_framework.utils.serializer_helpers import ReturnList
+from taggit.models import TaggedItem
+
+# Ghostwriter Libraries
+from ghostwriter.commandcenter.models import ExtraFieldSpec
+from ghostwriter.modules.custom_serializers import OplogEntrySerializer
+from ghostwriter.oplog.models import Oplog, OplogEntry
+from ghostwriter.users.models import User
+
+# Using __name__ resolves to ghostwriter.oplog.consumers
+logger = logging.getLogger(__name__)
+
+
+class TsVectorConcat(Func):
+    """
+    Raw concat operator.
+
+    Unlike Django's built in Concat function, this does not convert each argument to text first, so
+    it can be used with tsvectors.
+    """
+
+    template = "(%(expressions)s)"
+    arg_joiner = " || "
+    output_field = SearchVectorField()
+
+
+def user_can_access_oplog(oplog_id, user):
+    """Return whether the user can connect to an oplog's WebSocket group."""
+    if not user.is_active:
+        return False
+    try:
+        oplog = Oplog.objects.get(pk=oplog_id)
+    except Oplog.DoesNotExist:
+        return False
+    return oplog.user_can_view(user)
+
+
+user_can_access_oplog_async = database_sync_to_async(user_can_access_oplog)
+
+
+@database_sync_to_async
+def create_oplog_entry(oplog_id, user):
+    """Attempt to create a new log entry for the given log ID."""
+    try:
+        oplog = Oplog.objects.get(pk=oplog_id)
+    except Oplog.DoesNotExist:
+        logger.warning(
+            "Failed to create log entry for log ID %s because that log ID does not exist.",
+            oplog_id,
+        )
+        return None
+
+    if oplog.project.user_can_edit(user):
+        entry = OplogEntry.objects.create(
+            oplog_id_id=oplog_id,
+            operator_name=user.username,
+            extra_fields=ExtraFieldSpec.initial_json(OplogEntry),
+        )
+        return entry.id
+
+    logger.warning(
+        "User %s attempted to create a log entry for log ID %s without permission.",
+        user.username,
+        oplog_id,
+    )
+    return None
+
+
+@database_sync_to_async
+def delete_oplog_entry(entry_id, user):
+    """Attempt to delete the log entry with the given entry ID."""
+    try:
+        entry = OplogEntry.objects.get(pk=entry_id)
+        if entry.oplog_id.project.user_can_edit(user):
+            entry.delete()
+        else:
+            logger.warning(
+                "User %s attempted to delete log entry %s for log ID %s without permission.",
+                user.username,
+                entry_id,
+                entry.oplog_id.id,
+            )
+    except OplogEntry.DoesNotExist:
+        # This is fine, it just means the entry was already deleted
+        pass
+
+
+@database_sync_to_async
+def copy_oplog_entry(entry_id, user):
+    """Attempt to copy the log entry with the given entry ID."""
+    try:
+        entry = OplogEntry.objects.get(pk=entry_id)
+    except OplogEntry.DoesNotExist:
+        logger.warning("Failed to copy log entry %s because that entry ID does not exist.", entry_id)
+        return
+
+    if entry.oplog_id.project.user_can_edit(user):
+        copy = deepcopy(entry)
+        copy.pk = None
+        copy.start_date = timezone.now()
+        copy.end_date = timezone.now()
+        copy.save()
+        tags_to_copy = [
+            t for t in entry.tags.all()
+            if not any(kw in t.name.upper() for kw in ("RECORDING", "EVIDENCE"))
+        ]
+        copy.tags.add(*tags_to_copy)
+    else:
+        logger.warning(
+            "User %s attempted to copy log entry %s for log ID %s without permission.",
+            user.username,
+            entry_id,
+            entry.oplog_id.id,
+        )
+
+
+class OplogEntryConsumer(AsyncWebsocketConsumer):
+    """This consumer handles WebSocket connections for :model:`oplog.OplogEntry`."""
+
+    @database_sync_to_async
+    def get_log_entries(self, oplog_id: int, offset: int, user: User, filter: str | None = None) -> ReturnList:
+        try:
+            oplog = Oplog.objects.get(pk=oplog_id)
+        except Oplog.DoesNotExist:
+            logger.warning("Failed to get log entries for log ID %s because that log ID does not exist.", oplog_id)
+            return OplogEntrySerializer([], many=True).data
+
+        if not oplog.project.user_can_view(user):
+            return OplogEntrySerializer([], many=True).data
+
+        entries = OplogEntry.objects.filter(oplog_id=oplog_id)
+        if filter:
+            # Build search vectors.
+            # english_vector_args should contain fields containing mostly English text, and will be stemmed.
+            # simple_vector_args should contain fields that won't be stemmed.
+
+            # Built-in fields
+            english_vector_args = [
+                "description",
+                "output",
+                "comments",
+            ]
+
+            simple_vector_args = english_vector_args + [
+                "entry_identifier",
+                "source_ip",
+                "dest_ip",
+                "tool",
+                "user_context",
+                "command",
+                "operator_name",
+                "start_date",
+                "end_date",
+            ]
+
+            # Subquery to fetch tags
+            simple_vector_args.append(
+                Subquery(
+                    TaggedItem.objects.filter(
+                        content_type__app_label=OplogEntry._meta.app_label,
+                        content_type__model=OplogEntry._meta.model_name,
+                        object_id=OuterRef("pk"),
+                    )
+                    .annotate(all_tags=Func(F("tag__name"), Value(" "), function="STRING_AGG"))
+                    .values("all_tags")
+                )
+            )
+
+            # OneToOne reverse accessor — resolved as a simple LEFT JOIN by PostgreSQL
+            simple_vector_args.append(F("recording__recording_text"))
+
+            # JSON operations to fetch extra fields
+            for spec in ExtraFieldSpec.objects.filter(target_model=OplogEntry._meta.label):
+                if spec.type == "json":
+                    continue
+
+                field = CombinedExpression(
+                    F("extra_fields"),
+                    "->>",
+                    Value(spec.internal_name),
+                )
+                simple_vector_args.append(field)
+                if spec.type == "rich_text":
+                    english_vector_args.append(field)
+
+            # Create and combine search vectors.
+            # Limit inputs since PostgreSQL will abort the query if attempting to make a tsvector out of a huge string
+            vectors = [SearchVector(Left(Cast(va, TextField()), 100000), config="english") for va in english_vector_args] + \
+                [SearchVector(Left(Cast(va, TextField()), 100000), config="simple") for va in simple_vector_args]
+            vector = TsVectorConcat(*vectors)
+
+            # Build filter.
+            # Search using both english and simple configs, to help match both types of vectors. Also use prefix
+            # terms to help search partial matches.
+
+            def q_term(term):
+                term = "'" + term.replace("'", "''").replace("\\", "\\\\") + "':*"
+                return SearchQuery(term, config="english", search_type="raw") | SearchQuery(
+                    term, config="simple", search_type="raw"
+                )
+
+            query = reduce(lambda a, b: a & b, (q_term(term) for term in filter.split()))
+
+            # Run query
+            entries = (
+                entries.annotate(
+                    search=vector,
+                    rank=SearchRank(vector, query),
+                )
+                .filter(search=query)
+                .order_by("-start_date")
+            )
+        else:
+            entries = entries.order_by("-start_date")
+        entries = entries[offset : offset + 100]
+        return OplogEntrySerializer(entries, many=True).data
+
+    @database_sync_to_async
+    def get_single_entry(self, entry_id: int, user: User):
+        """Fetch and serialize a single :model:`oplog.OplogEntry` by ID for deep-linking."""
+        try:
+            entry = OplogEntry.objects.get(pk=entry_id)
+        except OplogEntry.DoesNotExist:
+            return None
+        if not entry.user_can_view(user):
+            return None
+        return OplogEntrySerializer(entry).data
+
+    async def send_oplog_entry(self, event):
+        await self.send(text_data=event["text"])
+
+    async def connect(self):
+        user = self.scope["user"]
+        oplog_id = self.scope["url_route"]["kwargs"]["pk"]
+        if not await user_can_access_oplog_async(oplog_id, user):
+            logger.warning(
+                "User %s attempted to connect to oplog %s without permission.",
+                user,
+                oplog_id,
+            )
+            await self.close(code=4403)
+            return
+
+        await self.channel_layer.group_add(str(oplog_id), self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        logger.info("WebSocket disconnected with close code: %s", close_code)
+
+    async def receive(self, text_data=None, bytes_data=None):
+        user = self.scope["user"]
+        json_data = json.loads(text_data)
+        if json_data["action"] == "delete":
+            oplog_entry_id = int(json_data["oplogEntryId"])
+            await delete_oplog_entry(oplog_entry_id, user)
+
+        if json_data["action"] == "copy":
+            oplog_entry_id = int(json_data["oplogEntryId"])
+            await copy_oplog_entry(oplog_entry_id, user)
+
+        if json_data["action"] == "create":
+            modal_request_id = json_data.get("modal_request_id")
+            if not isinstance(modal_request_id, str):
+                modal_request_id = None
+            entry_id = await create_oplog_entry(json_data["oplog_id"], self.scope["user"])
+            if modal_request_id is not None:
+                await self.send(
+                    text_data=json.dumps(
+                        {
+                            "action": "create_modal_ack",
+                            "modal_request_id": modal_request_id,
+                            "entry_id": entry_id,
+                        }
+                    )
+                )
+
+        if json_data["action"] == "sync":
+            oplog_id = json_data["oplog_id"]
+            offset = json_data["offset"]
+            filter = json_data.get("filter", "")
+            entries = await self.get_log_entries(oplog_id, offset, user, filter)
+            message = json.dumps(
+                {
+                    "action": "sync",
+                    "filter": filter,
+                    "offset": offset,
+                    "data": entries,
+                }
+            )
+
+            await self.send(text_data=message)
+
+        if json_data["action"] == "fetch_entry":
+            entry_id = int(json_data["oplogEntryId"])
+            entry = await self.get_single_entry(entry_id, user)
+            if entry is not None:
+                message = json.dumps({"action": "fetch_entry", "data": entry})
+                await self.send(text_data=message)

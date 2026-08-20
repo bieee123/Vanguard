@@ -1,0 +1,147 @@
+table:
+  name: shepherd_staticserver
+  schema: public
+configuration:
+  column_config:
+    extra_fields:
+      custom_name: extraFields
+    ip_address:
+      custom_name: ipAddress
+    last_used_by_id:
+      custom_name: lastUsedById
+    server_provider_id:
+      custom_name: serverProviderId
+    server_status_id:
+      custom_name: serverStatusId
+  custom_column_names:
+    extra_fields: extraFields
+    ip_address: ipAddress
+    last_used_by_id: lastUsedById
+    server_provider_id: serverProviderId
+    server_status_id: serverStatusId
+  custom_name: staticServer
+  custom_root_fields: {}
+object_relationships:
+  - name: serverProvider
+    using:
+      foreign_key_constraint_on: server_provider_id
+  - name: serverStatus
+    using:
+      foreign_key_constraint_on: server_status_id
+  - name: user
+    using:
+      foreign_key_constraint_on: last_used_by_id
+array_relationships:
+  - name: auxServerAddresses
+    using:
+      foreign_key_constraint_on:
+        column: static_server_id
+        table:
+          name: shepherd_auxserveraddress
+          schema: public
+  - name: checkouts
+    using:
+      foreign_key_constraint_on:
+        column: server_id
+        table:
+          name: shepherd_serverhistory
+          schema: public
+  - name: comments
+    using:
+      foreign_key_constraint_on:
+        column: server_id
+        table:
+          name: shepherd_servernote
+          schema: public
+  - name: serviceTokenStaticServerAccesses
+    using:
+      manual_configuration:
+        column_mapping:
+          id: server_id
+        insertion_order: null
+        remote_table:
+          name: api_service_token_static_server_access
+          schema: public
+insert_permissions:
+  - role: manager
+    permission:
+      check:
+        name:
+          _regex: '^(?:[A-Za-z0-9](?:[A-Za-z0-9._-]{0,253}[A-Za-z0-9])?)?$'
+      columns:
+        - extra_fields
+        - ip_address
+        - name
+        - description
+        - server_provider_id
+        - server_status_id
+  - role: user
+    permission:
+      check:
+        name:
+          _regex: '^(?:[A-Za-z0-9](?:[A-Za-z0-9._-]{0,253}[A-Za-z0-9])?)?$'
+      columns:
+        - extra_fields
+        - ip_address
+        - name
+        - description
+        - server_provider_id
+        - server_status_id
+select_permissions:
+  - role: manager
+    permission:
+      columns:
+        - extra_fields
+        - id
+        - ip_address
+        - last_used_by_id
+        - name
+        - description
+        - server_provider_id
+        - server_status_id
+      filter: {}
+  - role: service
+    permission:
+      columns: '*'
+      filter:
+        serviceTokenStaticServerAccesses:
+          token_id:
+            _eq: X-Hasura-Service-Token-Id
+  - role: user
+    permission:
+      columns: '*'
+      filter: {}
+update_permissions:
+  - role: manager
+    permission:
+      columns:
+        - extra_fields
+        - ip_address
+        - name
+        - description
+        - server_provider_id
+        - server_status_id
+      filter: {}
+      check:
+        name:
+          _regex: '^(?:[A-Za-z0-9](?:[A-Za-z0-9._-]{0,253}[A-Za-z0-9])?)?$'
+  - role: user
+    permission:
+      columns:
+        - extra_fields
+        - ip_address
+        - name
+        - description
+        - server_provider_id
+        - server_status_id
+      filter: {}
+      check:
+        name:
+          _regex: '^(?:[A-Za-z0-9](?:[A-Za-z0-9._-]{0,253}[A-Za-z0-9])?)?$'
+delete_permissions:
+  - role: manager
+    permission:
+      filter: {}
+  - role: user
+    permission:
+      filter: {}

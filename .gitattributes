@@ -1,0 +1,6 @@
+* text=auto
+
+# Shell scripts must stay LF or the docker entrypoints break inside containers
+*.sh text eol=lf
+start text eol=lf
+start_debug text eol=lf

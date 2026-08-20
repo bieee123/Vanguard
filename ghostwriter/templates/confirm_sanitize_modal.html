@@ -1,0 +1,114 @@
+<!-- Sanitize button will redirect to the href of the element with ``id = caller-id`` property in this modal -->
+<div class="modal fade" id="confirm-sanitize-modal" tabindex="-1" caller-id="" role="dialog"
+     aria-labelledby="confirm-sanitize-modal-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-body confirm-sanitize">
+        Are you sure you want to sanitize this log and all log entries?
+        <p class="bold mt-3">This action cannot be reversed!</p>
+        <p class="mt-3">Select the fields to sanitize below:</p>
+
+        <form id="sanitize-checklist-form">
+        </form>
+
+        <p class="mt-3">If sanitizing the <em>Command</em> field, Vanguard will delete everything after the first space (the tool/command name) to remove potentially sensitive information in arguments and parameters (e.g., hashes, keys).</p>
+        <p class="mt-3"><span class="bold">Note:</span> Selecting <em>Recordings</em> will <span class="bold">permanently delete</span> the recording files from disk. This cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" data-dismiss="modal" id="confirm-sanitize-button-modal">Sanitize
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% comment %}
+      Script to make modal appear whenever a user clicks any sanitize button/link
+
+      The modal's sanitize button fires the second script to actually sanitize the $target entry
+  {% endcomment %}
+
+<script>
+  $('[data-target="#confirm-sanitize-modal"]').each(function (index) {
+    $(this).click(function () {
+      $('#confirm-sanitize-modal').attr('caller-id', $(this).attr('id'));
+    });
+  });
+
+  $('#confirm-sanitize-modal').on('show.bs.modal', function () {
+    let caller = $('#confirm-sanitize-button-modal').closest('.modal').attr('caller-id');
+    let $target = $('#' + caller);
+    let targetId = $target.attr('sanitize-target-id');
+    let $previewContent = $('#key_name_' + targetId);
+
+    if ($previewContent.length) {
+      $('#object-preview-content').html(escapeHtml($previewContent.text()));
+    }
+  });
+
+  function updateOplogSanitizationStatus(sanitization) {
+    let $status = $('#oplog-sanitization-status');
+    if (!$status.length) {
+      return;
+    }
+
+    let fields = $('#sanitize-checklist-form input:checked').map(function () {
+      return $('label[for="' + this.id + '"]').clone().children().remove().end().text().trim()
+        .replace(' / Hostname', '');
+    }).get();
+    let sanitizedAt = new Date(sanitization.sanitized_at);
+    let date = sanitizedAt.toLocaleDateString(undefined, { dateStyle: 'long' });
+    let time = sanitizedAt.toLocaleTimeString(undefined, { timeStyle: 'short' });
+    let $fieldList = $('#oplog-sanitization-details-fields');
+
+    $('#oplog-sanitization-status-button').removeClass('badge-warning').addClass('badge-info');
+    $('#oplog-sanitization-status-icon').removeClass('fa-exclamation-triangle').addClass('fa-shield-alt');
+    $('#oplog-sanitization-status-text').text('Sanitized');
+    $('#oplog-sanitization-details-time').text(date + ' at ' + time);
+    $('#oplog-sanitization-details-user').text(sanitization.sanitized_by_name);
+    $('#oplog-sanitization-stale-message').addClass('d-none');
+    $fieldList.empty();
+    fields.forEach(function (field) {
+      $fieldList.append($('<span>', { class: 'badge badge-light border mr-1 mb-1', text: field }));
+    });
+    $status.show();
+  }
+
+  $('#confirm-sanitize-button-modal').click(function () {
+    // Get the ``id`` of the clicked element
+    let caller = $('#confirm-sanitize-button-modal').closest('.modal').attr('caller-id');
+    let $target = $('#' + caller);
+    // Values for the POST
+    let url = $target.attr('sanitize-target-url');
+    let targetId = $target.attr('sanitize-target-id');
+    let csrftoken = $target.attr('sanitize-target-csrftoken');
+
+    let formData = $('#sanitize-checklist-form').serializeArray();
+    formData = JSON.stringify(formData);
+
+    $.ajax({
+      url: url,
+      type: 'POST',
+      dataType: 'json',
+      headers: {
+        'X-CSRFToken': csrftoken,
+      },
+      data: {
+        'target': targetId,
+        'fields': formData,
+      },
+      success: function (data) {
+          if (data['message']) {
+            displayToastTop({type:data['result'], string:data['message'], title:'Log Update'});
+          }
+          if (data['result'] === 'success') {
+            updateOplogSanitizationStatus(data['sanitization']);
+          }
+      },
+      error: function(jqXHR, textStatus, errorThrown) {
+          console.error('Error occurred: ', textStatus, errorThrown);
+      }
+    });
+  });
+</script>

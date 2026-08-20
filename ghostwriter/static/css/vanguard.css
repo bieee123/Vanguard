@@ -1,0 +1,503 @@
+/* ===================================================
+    VANGUARD DESIGN SYSTEM
+    Fork of Ghostwriter (SpecterOps) — restyled per
+    DOCS/vanguard/design.md sections 1-4.
+
+    Dark graphite console: planning and pressure.
+    Loaded AFTER styles.css so these rules win.
+   =================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;650&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---------- 1. COLOR PALETTE ---------- */
+
+:root,
+[data-theme="light"],
+[data-theme="dark"] {
+  /* Surfaces */
+  --bg-base: #14161A;
+  --bg-surface: #1C1F25;
+  --bg-surface-raised: #242830;
+  --border-subtle: #31353E;
+  --border-strong: #454A56;
+
+  /* Text */
+  --text-primary: #EDEFF3;
+  --text-secondary: #9CA2AF;
+  --text-muted: #6B7280;
+
+  /* Accents */
+  --accent-signal: #E5484D;
+  --accent-signal-dim: #3A1F21;
+  --accent-amber: #E8A23D;
+  --accent-amber-dim: #3A2E1A;
+  --accent-teal: #3DBFA8;
+  --accent-teal-dim: #1A3330;
+  --accent-violet: #8B7FE8;
+
+  /* Severity (findings, heatmap, charts) */
+  --severity-critical: #E5484D;
+  --severity-high: #E8654D;
+  --severity-medium: #E8A23D;
+  --severity-low: #D9C24A;
+  --severity-info: #6B7280;
+
+  /* Map existing Ghostwriter vars onto the Vanguard tokens.
+     Both themes resolve to the same dark console palette.
+     Components that still reference the old vars pick this up. */
+  --primary-color: var(--accent-signal);
+  --secondary-color: var(--accent-violet);
+  --secondary-color-fade: #9A8CF0;
+  --secondary-color-med: #8B7FE8;
+  --secondary-color-light: #31353E;
+  --neutral-color: var(--text-muted);
+  --blocked-color: var(--accent-signal);
+  --warning-color: var(--accent-amber);
+  --ghost-white: var(--text-primary);
+  --ghost-grey: var(--text-secondary);
+  --placeholder-color: var(--text-muted);
+
+  --h1-font-color: var(--text-primary);
+  --h2-font-color: var(--text-primary);
+  --h3-font-color: var(--text-primary);
+  --main-txt-color: var(--text-secondary);
+  --main-bg-color: var(--bg-base);
+
+  --button-primary-color: var(--accent-signal);
+  --button-hover-color: #F0656A;
+  --button-warning-color: var(--accent-signal);
+  --button-border-radius: 4px;
+
+  --active-link-color: var(--accent-violet);
+  --clickable-underline-color: var(--accent-violet);
+
+  --sidebar-text-color: var(--text-primary);
+  --sidebar-active-text-color: var(--accent-signal);
+  --sidebar-header-text-color: var(--text-primary);
+  --sidebar-link-text-color: var(--text-secondary);
+
+  --sidebar-background-color: var(--bg-surface);
+  --sidebar-header-background-color: var(--bg-surface);
+  --sidebar-hover-background-color: var(--bg-surface-raised);
+  --sidebar-link-background-color: var(--border-strong);
+
+  --sidebar-collapse-button-color: var(--accent-signal);
+  --sidebar-collapse-button-text: #fff;
+
+  --navbar-background-color: var(--bg-surface);
+  --navbar-breadcrumb-active-color: var(--text-primary);
+  --navbar-breadcrumb-background-color: var(--bg-surface);
+  --navbar-breadcrumb-active-background-color: var(--bg-surface);
+  --navbar-report-selected-font-color: var(--accent-teal);
+  --navbar-report-selected-background-color: var(--accent-teal-dim);
+  --navbar-report-empty-font-color: var(--accent-signal);
+  --navbar-report-empty-background-color: var(--accent-signal-dim);
+
+  --accordion-primary-color: var(--accent-violet);
+  --accordion-expanded-color: var(--accent-signal);
+
+  --collapsible-main-color: var(--accent-violet);
+  --collapsible-hover-color: var(--accent-signal);
+
+  --dropdown-button-main-color: var(--accent-signal);
+  --dropdown-button-hover-color: var(--accent-signal);
+
+  --search-text-color: var(--text-muted);
+  --search-box-shadow: var(--border-subtle);
+  --search-input-background-color: var(--bg-base);
+
+  --table-header-color: var(--text-primary);
+  --secondary-table-header-color: rgba(156, 162, 175, 0.15);
+
+  --burned-color: var(--accent-signal);
+  --healthy-color: var(--accent-teal);
+  --info-rating-color: var(--accent-violet);
+  --low-rating-color: var(--severity-low);
+  --med-rating-color: var(--severity-medium);
+  --high-rating-color: var(--severity-high);
+  --crit-rating-color: var(--severity-critical);
+  --neutral-rating-color: var(--text-muted);
+
+  --word-color: #4A8AE5;
+  --pptx-color: #E56747;
+  --excel-color: #3FA860;
+}
+
+/* ---------- 5.1 AUTH / LOGIN ---------- */
+
+.auth-page {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+}
+
+.auth-brand {
+  padding: 40px 32px 24px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.auth-brand h1 {
+  margin: 0;
+  font-size: 28px;
+  font-family: "Inter Tight", "Inter", sans-serif;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+}
+
+.auth-tagline {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+
+.auth-body {
+  padding: 32px;
+}
+
+.auth-body h2 {
+  font-size: 20px;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.auth-body label {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.auth-body .btn-primary {
+  width: 100%;
+}
+
+/* ---------- 6. RESPONSIVE ---------- */
+
+@media (max-width: 1024px) {
+  #sidebar { width: 64px; }
+  #sidebar .sideheader, #sidebar .components li a { font-size: 0; }
+}
+
+@media (max-width: 768px) {
+  table.table { display: block; overflow-x: auto; }
+}
+
+/* ---------- 2. TYPOGRAPHY ---------- */
+
+body,
+p,
+input,
+button,
+select,
+textarea {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6,
+.sideheader,
+.card-title,
+.navbar-brand {
+  font-family: "Inter Tight", "Inter", -apple-system, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+pre,
+code,
+kbd,
+samp,
+.monospace,
+#id_command,
+.ip-address,
+.technique-id {
+  font-family: "JetBrains Mono", "Roboto Mono", Consolas, monospace;
+}
+
+body { font-weight: 400; }
+
+/* ---------- 3. LAYOUT / SHAPE ---------- */
+
+:root {
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-modal: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.modal-content {
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+}
+
+.form-control {
+  background-color: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+}
+
+.form-control:focus {
+  background-color: var(--bg-base);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  outline: 2px solid var(--accent-violet);
+  outline-offset: 0;
+  box-shadow: none;
+}
+
+.form-control::placeholder { color: var(--text-muted); }
+
+/* ---------- 4. COMPONENTS ---------- */
+
+/* Sidebar */
+#sidebar {
+  background: var(--sidebar-background-color);
+  border-right: 1px solid var(--border-subtle);
+}
+
+#sidebar .sidebar-header {
+  background: var(--sidebar-header-background-color);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+#sidebar .sideheader {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+#sidebar .components li a {
+  color: var(--sidebar-link-text-color);
+}
+
+#sidebar .components li a:hover {
+  background: var(--sidebar-hover-background-color);
+  color: var(--text-primary);
+}
+
+#sidebar .components li a.active {
+  background: var(--sidebar-hover-background-color);
+  color: var(--sidebar-active-text-color);
+  border-left: 3px solid var(--accent-signal);
+}
+
+/* Top nav / content area */
+#content { background: var(--bg-base); }
+
+.top-bar {
+  background: var(--navbar-background-color);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.breadcrumb {
+  background: var(--navbar-breadcrumb-background-color);
+}
+
+/* Buttons */
+.btn-primary {
+  background-color: var(--button-primary-color);
+  border-color: var(--button-primary-color);
+  color: #fff;
+  border-radius: var(--radius-sm);
+}
+
+.btn-primary:hover {
+  background-color: var(--button-hover-color);
+  border-color: var(--button-hover-color);
+  color: #fff;
+}
+
+.btn-secondary {
+  background-color: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+}
+
+.btn-danger {
+  background-color: transparent;
+  border: 1px solid var(--accent-signal);
+  color: var(--accent-signal);
+  border-radius: var(--radius-sm);
+}
+
+.btn-danger:hover {
+  background-color: var(--accent-signal);
+  color: #fff;
+}
+
+/* Data tables */
+.table thead th {
+  background: var(--bg-surface-raised);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.table tbody tr {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.table tbody tr:hover {
+  background: var(--bg-surface-raised);
+}
+
+/* Severity / status badges (pill) */
+.badge {
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+}
+
+.badge-success, .bg-success { background-color: var(--accent-teal) !important; color: #04221E !important; }
+.badge-warning, .bg-warning { background-color: var(--accent-amber) !important; color: #2A1E06 !important; }
+.badge-danger, .bg-danger { background-color: var(--accent-signal) !important; color: #fff !important; }
+.badge-info, .bg-info { background-color: var(--accent-violet) !important; color: #fff !important; }
+
+/* ATT&CK technique tags / links */
+.attack-technique,
+a.tag,
+.tag {
+  background: var(--accent-violet);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12.5px;
+  padding: 2px 8px;
+}
+
+/* Focus states */
+a:focus,
+button:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--accent-violet) !important;
+  outline-offset: 0;
+}
+
+/* Empty states */
+.empty-state {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px 16px;
+}
+
+/* Detection verdict chips */
+.verdict-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.verdict-detected { background: var(--accent-teal-dim); color: var(--accent-teal); }
+.verdict-not-detected { background: var(--accent-signal-dim); color: var(--accent-signal); }
+.verdict-partial { background: var(--accent-amber-dim); color: var(--accent-amber); }
+.verdict-untested { background: var(--bg-surface-raised); color: var(--text-muted); }
+
+/* Connection status chip */
+.connection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.connection-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.connection-chip.connected .dot { background: var(--accent-teal); }
+.connection-chip.connected { color: var(--accent-teal); }
+.connection-chip.degraded .dot { background: var(--accent-amber); }
+.connection-chip.degraded { color: var(--accent-amber); }
+.connection-chip.disconnected .dot { background: var(--accent-signal); }
+.connection-chip.disconnected { color: var(--accent-signal); }
+
+/* Phase tracker rail (Engagement views) */
+.phase-tracker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.phase-tracker .phase-pill {
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+
+.phase-tracker .phase-pill.current {
+  background: var(--accent-signal);
+  border-color: var(--accent-signal);
+  color: #fff;
+}
+
+.phase-tracker .phase-pill.completed {
+  border-color: var(--accent-teal);
+  color: var(--accent-teal);
+}
+
+/* Card headers */
+.card-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.card-header h2, .card-header h3, .card-header h4 {
+  color: var(--text-primary);
+}
+
+/* Links */
+a { color: var(--accent-violet); }
+a:hover { color: var(--accent-violet); }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Dark-mode image brightness tweak — Vanguard is dark-first, keep images legible */
+img:not(.navbar-avatar) {
+  filter: brightness(0.9);
+}

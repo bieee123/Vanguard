@@ -1,0 +1,1 @@
+"""Tests for the Vanguard Knowledge Base application."""

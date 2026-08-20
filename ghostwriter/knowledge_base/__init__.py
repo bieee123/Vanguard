@@ -1,0 +1,1 @@
+"""Contains the Vanguard Knowledge Base (Second Brain) application."""

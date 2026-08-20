@@ -1,0 +1,1194 @@
+# Standard Libraries
+import base64
+from io import BytesIO
+import os
+import tempfile
+from zipfile import ZipFile
+
+# Django Imports
+from django.test import SimpleTestCase, TestCase, override_settings
+
+# 3rd Party Libraries
+import docx
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from lxml import etree
+
+# Ghostwriter Libraries
+from ghostwriter.commandcenter.models import ReportConfiguration
+from ghostwriter.factories import ReportDocxTemplateFactory
+from ghostwriter.modules.reportwriter.richtext.docx import HtmlToDocx, HtmlToDocxWithEvidence
+from ghostwriter.reporting.models import EvidenceImageAlignment, EvidenceImageAlignmentOverride
+
+WORD_PREFIX = """<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:mo="http://schemas.microsoft.com/office/mac/office/2008/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:mv="urn:schemas-microsoft-com:mac:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 wp14"><w:body>"""  # noqa: E501
+WORD_SUFFIX = """<w:sectPr w:rsidR="00FC693F" w:rsidRPr="0006063C" w:rsidSect="00034616"><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800" w:header="720" w:footer="720" w:gutter="0"/><w:cols w:space="720"/><w:docGrid w:linePitch="360"/></w:sectPr></w:body></w:document>"""  # noqa: E501
+
+
+def clean_xml(xml):
+    """
+    Pretty-formats XML, for comparison and better diffs in case of test failures.
+    """
+    if isinstance(xml, str):
+        xml = xml.encode("utf-8")
+    parser = etree.XMLParser(
+        no_network=True,
+        collect_ids=False,
+        remove_blank_text=True,
+        remove_comments=True,
+    )
+    v = etree.fromstring(xml, parser=parser)
+    v = etree.tostring(
+        v,
+        pretty_print=True,
+    ).decode("utf-8")
+    return v
+
+
+def mk_test_docx(name, input, expected_output, p_style=None):
+    """
+    Creates a test function, that compares the output of running the `HtmlToDocx` converter
+    over `input` to the `expected_output`.
+
+    The converted result XML and expected output XML are both cleaned before comparison, so differences in
+    whitespace will not affect comparison.
+    """
+    expected_output = clean_xml(WORD_PREFIX + expected_output + WORD_SUFFIX)
+
+    def test_func(self):
+        doc = docx.Document()
+        HtmlToDocx.run(input, doc, p_style)
+        out = BytesIO()
+        doc.part.save(out)
+
+        with ZipFile(out) as zip:
+            with zip.open("word/document.xml") as file:
+                contents = file.read()
+        contents = clean_xml(contents)
+        self.assertEqual(contents, expected_output)
+
+    test_func.__name__ = name
+    return test_func
+
+
+class RichTextToDocxTests(SimpleTestCase):
+    maxDiff = None
+
+    def test_trailing_empty_paragraph_after_list_is_omitted(self):
+        doc = docx.Document()
+        HtmlToDocx.run(
+            "<ul><li><p>dc01.gbi.local</p></li>"
+            "<li><p>fs01.gbi.local</p></li>"
+            "<li><p>portal.gbi.example</p></li></ul><p></p><p></p>",
+            doc,
+            None,
+        )
+
+        self.assertEqual(
+            [paragraph.text for paragraph in doc.paragraphs],
+            ["dc01.gbi.local", "fs01.gbi.local", "portal.gbi.example"],
+        )
+
+    def test_internal_empty_paragraph_is_preserved(self):
+        doc = docx.Document()
+        HtmlToDocx.run("<p>Before</p><p></p><p>After</p>", doc, None)
+
+        self.assertEqual(
+            [paragraph.text for paragraph in doc.paragraphs],
+            ["Before", "", "After"],
+        )
+
+    def test_trailing_hard_break_is_preserved(self):
+        doc = docx.Document()
+        HtmlToDocx.run("<p>Before</p><p><br></p>", doc, None)
+
+        self.assertEqual(
+            [paragraph.text for paragraph in doc.paragraphs],
+            ["Before", "\n"],
+        )
+
+    def test_table_cell_paragraphs_remain_in_the_cell(self):
+        doc = docx.Document()
+        HtmlToDocx.run(
+            "<table><tr><td><p>AAAA</p><p>BBBB</p><p>CCCC</p></td></tr></table>",
+            doc,
+            None,
+        )
+
+        self.assertEqual(
+            [paragraph.text for paragraph in doc.tables[0].cell(0, 0).paragraphs],
+            ["AAAA", "BBBB", "CCCC"],
+        )
+        self.assertNotIn("BBBB", [paragraph.text for paragraph in doc.paragraphs])
+        self.assertNotIn("CCCC", [paragraph.text for paragraph in doc.paragraphs])
+
+    def test_nested_collab_table_wrapper_remains_in_the_cell(self):
+        doc = docx.Document()
+        HtmlToDocx.run(
+            '<table><tr><td><div class="collab-table-wrapper">'
+            "<table><tr><td><p>NESTED</p></td></tr></table>"
+            "</div></td></tr></table>",
+            doc,
+            None,
+        )
+
+        outer_cell = doc.tables[0].cell(0, 0)
+        self.assertEqual(len(outer_cell.tables), 1)
+        self.assertEqual(
+            [
+                paragraph.text
+                for paragraph in outer_cell.tables[0].cell(0, 0).paragraphs
+            ],
+            ["NESTED"],
+        )
+        self.assertEqual([paragraph.text for paragraph in doc.paragraphs], [])
+
+    def test_tables_inside_body_blocks_use_the_document_container(self):
+        cases = {
+            "blockquote": (
+                "<blockquote><table><tr><td><p>NESTED</p></td></tr></table></blockquote>"
+            ),
+            "bullet list": (
+                "<ul><li><table><tr><td><p>NESTED</p></td></tr></table></li></ul>"
+            ),
+        }
+
+        for name, html in cases.items():
+            with self.subTest(name=name):
+                doc = docx.Document()
+                HtmlToDocx.run(html, doc, None)
+
+                self.assertEqual(len(doc.tables), 1)
+                self.assertEqual(
+                    [
+                        paragraph.text
+                        for paragraph in doc.tables[0].cell(0, 0).paragraphs
+                    ],
+                    ["NESTED"],
+                )
+
+    def test_table_cell_block_elements_remain_in_the_cell(self):
+        cases = {
+            "blockquote": (
+                "<blockquote><p>AAAA</p><p>BBBB</p></blockquote>",
+                ["AAAA", "BBBB"],
+            ),
+            "code block after paragraph": (
+                "<p>AAAA</p><pre><code>BBBB</code></pre>",
+                ["AAAA", "BBBB"],
+            ),
+            "bullet list": (
+                "<ul><li><p>AAAA</p></li><li><p>BBBB</p></li></ul>",
+                ["AAAA", "BBBB"],
+            ),
+            "numbered list": (
+                "<ol><li><p>AAAA</p></li><li><p>BBBB</p></li></ol>",
+                ["AAAA", "BBBB"],
+            ),
+            "heading": ("<h3>AAAA</h3><p>BBBB</p>", ["AAAA", "BBBB"]),
+            "page break": (
+                '<p>AAAA</p><div class="page-break"></div><p>BBBB</p>',
+                ["AAAA", "", "BBBB"],
+            ),
+        }
+
+        for name, (cell_html, expected_paragraphs) in cases.items():
+            with self.subTest(name=name):
+                doc = docx.Document()
+                HtmlToDocx.run(
+                    f"<table><tr><td>{cell_html}</td></tr></table>",
+                    doc,
+                    None,
+                )
+
+                self.assertEqual(
+                    [
+                        paragraph.text
+                        for paragraph in doc.tables[0].cell(0, 0).paragraphs
+                    ],
+                    expected_paragraphs,
+                )
+                self.assertEqual([paragraph.text for paragraph in doc.paragraphs], [])
+
+                cell_paragraphs = doc.tables[0].cell(0, 0).paragraphs
+                if name in ("bullet list", "numbered list"):
+                    self.assertTrue(
+                        all(
+                            paragraph._p.pPr.numPr is not None
+                            for paragraph in cell_paragraphs
+                        )
+                    )
+                elif name == "heading":
+                    self.assertEqual(cell_paragraphs[0].style.name, "Heading 3")
+                elif name == "page break":
+                    self.assertTrue(
+                        cell_paragraphs[1]._p.xpath('.//w:br[@w:type="page"]')
+                    )
+
+    def test_safe_links_are_preserved(self):
+        doc = docx.Document()
+        HtmlToDocx.run('<p><a href="https://example.com">Example</a></p>', doc, None)
+        out = BytesIO()
+        doc.part.save(out)
+
+        with ZipFile(out) as zip:
+            with zip.open("word/document.xml") as file:
+                document_xml = file.read().decode("utf-8")
+            with zip.open("word/_rels/document.xml.rels") as file:
+                rels_xml = file.read().decode("utf-8")
+
+        self.assertIn("Example", document_xml)
+        self.assertIn("w:hyperlink", document_xml)
+        self.assertIn('Target="https://example.com"', rels_xml)
+
+    def test_unsafe_links_are_removed(self):
+        doc = docx.Document()
+        HtmlToDocx.run('<p><a href="javascript:alert(1)">Example</a></p>', doc, None)
+        out = BytesIO()
+        doc.part.save(out)
+
+        with ZipFile(out) as zip:
+            with zip.open("word/document.xml") as file:
+                document_xml = file.read().decode("utf-8")
+            with zip.open("word/_rels/document.xml.rels") as file:
+                rels_xml = file.read().decode("utf-8")
+
+        self.assertIn("Example", document_xml)
+        self.assertNotIn("w:hyperlink", document_xml)
+        self.assertNotIn("javascript:alert(1)", rels_xml)
+
+    test_paragraphs = mk_test_docx(
+        "test_paragraphs",
+        "<p>Hello World!</p><p>This is a test!</p>",
+        """<w:p><w:pPr/><w:r><w:t>Hello World!</w:t></w:r></w:p><w:p><w:pPr/><w:r><w:t>This is a test!</w:t></w:r></w:p>""",
+    )
+
+    test_bold = mk_test_docx(
+        "test_bold",
+        "<p>Hello <b>World</b>!</p>",
+        """
+            <w:p>
+                <w:pPr/>
+                <w:r><w:t xml:space="preserve">Hello </w:t></w:r>
+                <w:r><w:rPr><w:b/></w:rPr><w:t>World</w:t></w:r>
+                <w:r><w:t>!</w:t></w:r>
+            </w:p>
+        """,
+    )
+
+    test_headers = mk_test_docx(
+        "test_headers",
+        "<h1>Hello World!</h1><h2>Heading two</h2><h3>Heading three</h3><p>Paragraph</p>",
+        """
+            <w:p>
+                <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+                <w:r><w:t>Hello World!</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+                <w:r><w:t>Heading two</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+                <w:r><w:t>Heading three</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr/>
+                <w:r><w:t>Paragraph</w:t></w:r>
+            </w:p>
+        """,
+    )
+
+    test_colors = mk_test_docx(
+        "test_colors",
+        """<p><span style="color: #ff0000;">Red</span>Text</p>""",
+        """
+            <w:p>
+                <w:pPr/>
+                <w:r><w:rPr><w:color w:val="FF0000"/></w:rPr><w:t>Red</w:t></w:r>
+                <w:r><w:t>Text</w:t></w:r>
+            </w:p>
+        """,
+    )
+
+    test_formatting = mk_test_docx(
+        "test_formatting",
+        """
+            <p>
+                <b>Bold</b>
+                <strong>Strong</strong>
+                <span class="bold">Bold class</span>
+                <i>Italic</i>
+                <em>Emphasis</em>
+                <span class="italic">Italic class</span>
+                <u>Underline</u>
+                <span class="underline">Underline class</span>
+                <sub>Subscript</sub>
+                <sup>Superscript</sup>
+                <del>Strikethrough</del>
+                <span class="highlight">Highlight class</span>
+            </p>
+        """,
+        """
+            <w:p>
+                <w:pPr/>
+                <w:r/>
+                <w:r><w:rPr><w:b/></w:rPr><w:t>Bold</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:b/></w:rPr><w:t>Strong</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:b/></w:rPr><w:t>Bold class</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:i/></w:rPr><w:t>Italic</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:i/></w:rPr><w:t>Emphasis</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:i/></w:rPr><w:t>Italic class</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:u w:val="single"/></w:rPr><w:t>Underline</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:u w:val="single"/></w:rPr><w:t>Underline class</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:vertAlign w:val="subscript"/></w:rPr><w:t>Subscript</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>Superscript</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:strike/></w:rPr><w:t>Strikethrough</w:t></w:r>
+                <w:r><w:t xml:space="preserve"> </w:t></w:r>
+                <w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>Highlight class</w:t></w:r>
+                <w:r/>
+            </w:p>
+        """,
+    )
+
+    test_unordered_list = mk_test_docx(
+        "test_unordered_list",
+        """
+            <p>List test one:</p>
+            <ul>
+                <li>Item one</li>
+                <li>Item two</li>
+                <li>Item three:<ul>
+                    <li>Subitem one</li>
+                    <li>Subitem two</li>
+                </ul></li>
+            </ul>
+            <p>List test two:</p>
+            <ul>
+                <li>Item one</li>
+                <li>Item two</li>
+            </ul>
+        """,
+        """
+            <w:p><w:pPr/><w:r><w:t>List test one:</w:t></w:r></w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item two</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item three:</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Subitem one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Subitem two</w:t></w:r>
+            </w:p>
+            <w:p><w:pPr/><w:r><w:t>List test two:</w:t></w:r></w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item two</w:t></w:r>
+            </w:p>
+        """,
+    )
+
+    test_ordered_list = mk_test_docx(
+        "test_ordered_list",
+        """
+            <p>List test one:</p>
+            <ol>
+                <li>Item one</li>
+                <li>Item two</li>
+                <li>Item three:<ol>
+                    <li>Subitem one</li>
+                    <li>Subitem two</li>
+                </ol></li>
+            </ol>
+            <p>List test two:</p>
+            <ol>
+                <li>Item one</li>
+                <li>Item two</li>
+            </ol>
+        """,
+        """
+            <w:p><w:pPr/><w:r><w:t>List test one:</w:t></w:r></w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item two</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item three:</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Subitem one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Subitem two</w:t></w:r>
+            </w:p>
+            <w:p><w:pPr/><w:r><w:t>List test two:</w:t></w:r></w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item two</w:t></w:r>
+            </w:p>
+        """,
+    )
+
+    test_mixed_list = mk_test_docx(
+        "test_mixed_list",
+        """
+            <p>List test one:</p>
+            <ul>
+                <li>Item one</li>
+                <li>Item two</li>
+                <li>Item three:<ol>
+                    <li>Subitem one</li>
+                    <li>Subitem two</li>
+                </ol></li>
+            </ul>
+            <p>List test two:</p>
+            <ol>
+                <li>Item one</li>
+                <li>Item two</li>
+                <li>Item three:<ul>
+                    <li>Subitem one</li>
+                    <li>Subitem two</li>
+                </ul></li>
+            </ol>
+        """,
+        """
+            <w:p><w:pPr/><w:r><w:t>List test one:</w:t></w:r></w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item two</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item three:</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Subitem one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="10"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Subitem two</w:t></w:r>
+            </w:p>
+            <w:p><w:pPr/><w:r><w:t>List test two:</w:t></w:r></w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item two</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Item three:</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Subitem one</w:t></w:r>
+            </w:p>
+            <w:p>
+                <w:pPr>
+                    <w:pStyle w:val="ListParagraph"/>
+                    <w:numPr><w:ilvl w:val="1"/><w:numId w:val="11"/></w:numPr>
+                </w:pPr>
+                <w:r><w:t>Subitem two</w:t></w:r>
+            </w:p>
+        """,
+    )
+
+    test_blockquote = mk_test_docx(
+        "test_blockquote",
+        """
+        <p>A quote:</p>
+        <blockquote>Alas poor <b>Yorik</b>, I knew him well</blockquote>
+        """,
+        """
+            <w:p><w:pPr/><w:r><w:t>A quote:</w:t></w:r></w:p>
+            <w:p>
+                <w:r><w:t xml:space="preserve">Alas poor </w:t></w:r>
+                <w:r><w:rPr><w:b/></w:rPr><w:t>Yorik</w:t></w:r>
+                <w:r><w:t>, I knew him well</w:t></w:r>
+            </w:p>
+        """,
+    )
+
+    test_pre = mk_test_docx(
+        "test_pre",
+        """
+        <p>Some code:</p>
+        <pre>int main() {
+    printf("hello world!\\n");
+}</pre>
+        """,
+        """
+            <w:p><w:pPr/><w:r><w:t>Some code:</w:t></w:r></w:p>
+            <w:p>
+                <w:pPr><w:jc w:val="left"/></w:pPr>
+                <w:r>
+                    <w:rPr>
+                        <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                        <w:noProof/>
+                    </w:rPr>
+                    <w:t>int main() {</w:t>
+                    <w:br/>
+                    <w:t xml:space="preserve">    printf("hello world!\\n");</w:t>
+                    <w:br/>
+                    <w:t>}</w:t>
+                </w:r>
+            </w:p>
+        """,
+    )
+
+    test_table = mk_test_docx(
+        "test_table",
+        """
+        <table>
+            <tbody>
+                <tr>
+                    <td>Cell one</td>
+                    <td>Cell two</td>
+                    <td>Cell three</td>
+                </tr>
+                <tr>
+                    <td>Cell four</td>
+                    <td>Cell five</td>
+                    <td>Cell six</td>
+                </tr>
+            </tbody>
+        </table>
+        """,
+        """
+            <w:tbl>
+                <w:tblPr>
+                    <w:tblStyle w:val="TableGrid"/>
+                    <w:tblW w:type="pct" w:w="5000"/>
+                    <w:tblLayout w:type="autofit"/>
+                    <w:tblLook w:firstColumn="1" w:firstRow="1" w:lastColumn="0" w:lastRow="0" w:noHBand="0" w:noVBand="1" w:val="04A0"/>
+                </w:tblPr>
+                <w:tblGrid>
+                    <w:gridCol w:w="2880"/>
+                    <w:gridCol w:w="2880"/>
+                    <w:gridCol w:w="2880"/>
+                </w:tblGrid>
+                <w:tr>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell one</w:t></w:r></w:p>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell two</w:t></w:r></w:p>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell three</w:t></w:r></w:p>
+                    </w:tc>
+                </w:tr>
+                <w:tr>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell four</w:t></w:r></w:p>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell five</w:t></w:r></w:p>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell six</w:t></w:r></w:p>
+                    </w:tc>
+                </w:tr>
+            </w:tbl>
+        """,
+    )
+
+    test_table_spans = mk_test_docx(
+        "test_table_spans",
+        """
+        <table>
+            <tbody>
+                <tr>
+                    <td>Cell one</td>
+                    <td colspan="2">Wide cell</td>
+                </tr>
+                <tr>
+                    <td rowspan="2" colspan = "2">Big cell</td>
+                    <td>Cell two</td>
+                </tr>
+                <tr>
+                    <td>Cell three</td>
+                </tr>
+            </tbody>
+        </table>
+        """,
+        """
+            <w:tbl>
+                <w:tblPr>
+                    <w:tblStyle w:val="TableGrid"/>
+                    <w:tblW w:type="pct" w:w="5000"/>
+                    <w:tblLayout w:type="autofit"/>
+                    <w:tblLook w:firstColumn="1" w:firstRow="1" w:lastColumn="0" w:lastRow="0" w:noHBand="0" w:noVBand="1" w:val="04A0"/>
+                </w:tblPr>
+                <w:tblGrid>
+                    <w:gridCol w:w="2880"/>
+                    <w:gridCol w:w="2880"/>
+                    <w:gridCol w:w="2880"/>
+                </w:tblGrid>
+                <w:tr>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell one</w:t></w:r></w:p>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/><w:gridSpan w:val="2"/></w:tcPr>
+                        <w:p><w:r><w:t>Wide cell</w:t></w:r></w:p>
+                    </w:tc>
+                </w:tr>
+                <w:tr>
+                    <w:tc>
+                        <w:tcPr>
+                            <w:tcW w:type="auto" w:w="0"/>
+                            <w:gridSpan w:val="2"/>
+                            <w:vMerge w:val="restart"/>
+                        </w:tcPr>
+                        <w:p><w:r><w:t>Big cell</w:t></w:r></w:p>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell two</w:t></w:r></w:p>
+                    </w:tc>
+                </w:tr>
+                <w:tr>
+                    <w:tc>
+                        <w:tcPr>
+                            <w:tcW w:type="auto" w:w="0"/>
+                            <w:gridSpan w:val="2"/>
+                            <w:vMerge/>
+                        </w:tcPr>
+                        <w:p/>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>Cell three</w:t></w:r></w:p>
+                    </w:tc>
+                </w:tr>
+            </w:tbl>
+        """,
+    )
+
+    test_table_spans_2 = mk_test_docx(
+        "test_table_spans_2",
+        """
+        <table>
+            <tbody>
+                <tr>
+                    <td>a</td>
+                    <td rowspan="2">bcd</td>
+                </tr>
+                <tr>
+                    <td>e</td>
+                </tr>
+            </tbody>
+        </table>
+        """,
+        """
+            <w:tbl>
+                <w:tblPr>
+                    <w:tblStyle w:val="TableGrid"/>
+                    <w:tblW w:type="pct" w:w="5000"/>
+                    <w:tblLayout w:type="autofit"/>
+                    <w:tblLook w:firstColumn="1" w:firstRow="1" w:lastColumn="0" w:lastRow="0" w:noHBand="0" w:noVBand="1" w:val="04A0"/>
+                </w:tblPr>
+                <w:tblGrid>
+                    <w:gridCol w:w="4320"/>
+                    <w:gridCol w:w="4320"/>
+                </w:tblGrid>
+                <w:tr>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>a</w:t></w:r></w:p>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr>
+                            <w:tcW w:type="auto" w:w="0"/>
+                            <w:vMerge w:val="restart"/>
+                        </w:tcPr>
+                        <w:p><w:r><w:t>bcd</w:t></w:r></w:p>
+                    </w:tc>
+                </w:tr>
+                <w:tr>
+                    <w:tc>
+                        <w:tcPr><w:tcW w:type="auto" w:w="0"/></w:tcPr>
+                        <w:p><w:r><w:t>e</w:t></w:r></w:p>
+                    </w:tc>
+                    <w:tc>
+                        <w:tcPr>
+                            <w:tcW w:type="auto" w:w="0"/>
+                            <w:vMerge/>
+                        </w:tcPr>
+                        <w:p/>
+                    </w:tc>
+                </w:tr>
+            </w:tbl>
+        """,
+    )
+
+    test_paragraph_class = mk_test_docx(
+        "test_paragraph_class",
+        """
+        <p class="left">Paragraph with a class</p>
+        """,
+        """
+        <w:p>
+            <w:pPr><w:jc w:val="left"/></w:pPr>
+            <w:r><w:t>Paragraph with a class</w:t></w:r>
+        </w:p>
+        """,
+    )
+
+    test_paragraphs_with_invalid_chars = mk_test_docx(
+        "test_paragraphs_with_invalid_chars",
+        "<p>Hello&#20; World!</p><p>This is a test!</p>",
+        """<w:p><w:pPr/><w:r><w:t>Hello World!</w:t></w:r></w:p><w:p><w:pPr/><w:r><w:t>This is a test!</w:t></w:r></w:p>""",
+    )
+
+
+class FootnoteToDocxTests(SimpleTestCase):
+    """Tests for footnote HTML to DOCX conversion."""
+
+    maxDiff = None
+
+    def test_footnote_creates_footnote_in_document(self):
+        """Test that <span class="footnote"> elements create Word footnotes."""
+        html = '<p>Text with a footnote<span class="footnote">This is the footnote content.</span> and more text.</p>'
+        doc = docx.Document()
+        HtmlToDocx.run(html, doc, None)
+
+        out = BytesIO()
+        doc.save(out)
+
+        # Check that footnotes.xml exists and contains the footnote
+        with ZipFile(out) as zip:
+            self.assertIn("word/footnotes.xml", zip.namelist())
+            with zip.open("word/footnotes.xml") as file:
+                contents = file.read().decode("utf-8")
+                self.assertIn("This is the footnote content.", contents)
+
+    def test_multiple_footnotes(self):
+        """Test that multiple footnotes are created correctly."""
+        html = """
+            <p>First footnote<span class="footnote">Footnote one.</span> and
+            second footnote<span class="footnote">Footnote two.</span> in same paragraph.</p>
+        """
+        doc = docx.Document()
+        HtmlToDocx.run(html, doc, None)
+
+        out = BytesIO()
+        doc.save(out)
+
+        with ZipFile(out) as zip:
+            with zip.open("word/footnotes.xml") as file:
+                contents = file.read().decode("utf-8")
+                self.assertIn("Footnote one.", contents)
+                self.assertIn("Footnote two.", contents)
+
+    def test_footnote_with_formatted_content(self):
+        """Test that footnotes preserve basic text content."""
+        html = '<p>Text<span class="footnote">Footnote with content.</span></p>'
+        doc = docx.Document()
+        HtmlToDocx.run(html, doc, None)
+
+        out = BytesIO()
+        doc.save(out)
+
+        with ZipFile(out) as zip:
+            with zip.open("word/footnotes.xml") as file:
+                contents = file.read().decode("utf-8")
+                self.assertIn("Footnote with content.", contents)
+
+    def test_footnote_reference_in_document(self):
+        """Test that footnote reference is inserted in the document."""
+        html = '<p>Text with footnote<span class="footnote">The footnote.</span> here.</p>'
+        doc = docx.Document()
+        HtmlToDocx.run(html, doc, None)
+
+        out = BytesIO()
+        doc.save(out)
+
+        with ZipFile(out) as zip:
+            with zip.open("word/document.xml") as file:
+                contents = file.read().decode("utf-8")
+                # Should contain a footnote reference element
+                self.assertIn("footnoteReference", contents)
+
+    def test_footnote_numbering_with_out_of_order_insertion(self):
+        """
+        Test that footnotes renumber correctly when inserted out of order.
+
+        Simulates editing scenario where a document is built incrementally
+        and a new footnote is inserted before existing ones.
+        """
+        # Create document with two footnotes first
+        doc = docx.Document()
+
+        # Add paragraphs 2 and 3 with footnotes (simulating original document)
+        html_initial = """
+            <p>Second paragraph<span class="footnote">Footnote A (added first).</span></p>
+            <p>Third paragraph<span class="footnote">Footnote B (added second).</span></p>
+        """
+        HtmlToDocx.run(html_initial, doc, None)
+
+        # Now simulate editing: insert a paragraph with footnote at the beginning
+        # This mimics the real-world scenario where user edits the TipTap editor
+        # Note: In reality, this would involve re-rendering the entire document
+        # but python-docx processes HTML sequentially, so we need to simulate
+        # the incremental addition that causes the issue
+
+        # For this test, let's verify that a full re-render produces sequential IDs
+        doc2 = docx.Document()
+        html_edited = """
+            <p>First paragraph<span class="footnote">Footnote C (added later).</span></p>
+            <p>Second paragraph<span class="footnote">Footnote A (added first).</span></p>
+            <p>Third paragraph<span class="footnote">Footnote B (added second).</span></p>
+        """
+        HtmlToDocx.run(html_edited, doc2, None)
+
+        out = BytesIO()
+        doc2.save(out)
+
+        with ZipFile(out) as zip:
+            with zip.open("word/document.xml") as file:
+                doc_xml = file.read().decode("utf-8")
+
+                # Extract footnote reference IDs in document order
+                import re
+
+                refs = re.findall(r'<w:footnoteReference[^>]*w:id="(\d+)"', doc_xml)
+
+                # Should be sequential: 1, 2, 3 (not 3, 1, 2 or 1, 1, 2)
+                self.assertEqual(
+                    refs,
+                    ["1", "2", "3"],
+                    f"Footnote IDs should be sequential in document order, got {refs}",
+                )
+
+            with zip.open("word/footnotes.xml") as file:
+                footnotes_xml = file.read().decode("utf-8")
+
+                # Verify footnote IDs match document references
+                import re
+
+                footnote_ids = re.findall(r'<w:footnote[^>]*w:id="(\d+)"', footnotes_xml)
+                # Filter out separators (-1, 0)
+                footnote_ids = [fid for fid in footnote_ids if int(fid) > 0]
+                self.assertEqual(sorted(footnote_ids), ["1", "2", "3"])
+
+
+class HtmlToDocxWithEvidenceTests(TestCase):
+    ONE_PIXEL_PNG = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yF9kAAAAASUVORK5CYII="
+    )
+
+    def build_converter(self, *, report_template=None, report_config=None, doc=None):
+        return HtmlToDocxWithEvidence(
+            doc or docx.Document(),
+            evidences={},
+            report_template=report_template or ReportDocxTemplateFactory(),
+            global_report_config=report_config or ReportConfiguration.get_solo(),
+            images={},
+        )
+
+    def test_heading_bookmarks_are_visible_with_hidden_reference_aliases(self):
+        doc = docx.Document()
+        report_template = ReportDocxTemplateFactory()
+        report_config = ReportConfiguration.get_solo()
+
+        converter = HtmlToDocxWithEvidence.run(
+            """<h2 data-bookmark='heading bookmark"quoted'>Heading</h2>""",
+            doc,
+            evidences={},
+            report_template=report_template,
+            global_report_config=report_config,
+            images={},
+        )
+        caption = doc.add_paragraph()
+        converter.make_caption(caption, "Figure", 'caption bookmark"quoted')
+        heading_reference = doc.add_paragraph()
+        converter.make_cross_ref(heading_reference, 'heading bookmark"quoted')
+        caption_reference = doc.add_paragraph()
+        converter.make_cross_ref(caption_reference, 'caption bookmark"quoted')
+
+        heading_starts = doc.paragraphs[0]._p.findall(qn("w:bookmarkStart"))
+        heading_ends = doc.paragraphs[0]._p.findall(qn("w:bookmarkEnd"))
+        self.assertEqual(
+            [start.get(qn("w:name")) for start in heading_starts],
+            ["heading_bookmark_quoted", "_Refheading_bookmark_quoted"],
+        )
+        self.assertEqual(
+            [end.get(qn("w:id")) for end in heading_ends],
+            [heading_starts[1].get(qn("w:id")), heading_starts[0].get(qn("w:id"))],
+        )
+
+        caption_starts = caption._p.findall(qn("w:bookmarkStart"))
+        self.assertEqual(
+            [start.get(qn("w:name")) for start in caption_starts],
+            ["_Refcaption_bookmark_quoted"],
+        )
+
+        heading_instruction = heading_reference._p.find(".//" + qn("w:instrText"))
+        caption_instruction = caption_reference._p.find(".//" + qn("w:instrText"))
+        self.assertEqual(
+            heading_instruction.text,
+            ' REF "_Refheading_bookmark_quoted" \\h ',
+        )
+        self.assertEqual(
+            caption_instruction.text,
+            ' REF "_Refcaption_bookmark_quoted" \\h ',
+        )
+
+    def test_text_evidence_uses_codeblock_style_without_forcing_alignment(self):
+        doc = docx.Document()
+        style = doc.styles.add_style("CodeBlock", WD_STYLE_TYPE.PARAGRAPH)
+        style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        converter = self.build_converter(doc=doc)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            evidence_name = "gw-evidence-codeblock.txt"
+            evidence_path = os.path.join(temp_dir, evidence_name)
+            with open(evidence_path, "w", encoding="utf-8") as evidence_file:
+                evidence_file.write("printf('hello');")
+
+            with override_settings(MEDIA_ROOT=temp_dir):
+                paragraph = doc.add_paragraph()
+                converter.make_evidence(
+                    paragraph,
+                    {"path": evidence_name, "friendly_name": "code", "caption": ""},
+                )
+
+        self.assertEqual(paragraph.style.name, "CodeBlock")
+        self.assertIsNone(paragraph.alignment)
+
+    def test_text_evidence_falls_back_to_left_alignment_without_codeblock_style(self):
+        doc = docx.Document()
+        converter = self.build_converter(doc=doc)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            evidence_name = "gw-evidence-plain.txt"
+            evidence_path = os.path.join(temp_dir, evidence_name)
+            with open(evidence_path, "w", encoding="utf-8") as evidence_file:
+                evidence_file.write("printf('hello');")
+
+            with override_settings(MEDIA_ROOT=temp_dir):
+                paragraph = doc.add_paragraph()
+                converter.make_evidence(
+                    paragraph,
+                    {"path": evidence_name, "friendly_name": "code", "caption": ""},
+                )
+
+        self.assertEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.LEFT)
+
+    def test_text_evidence_remains_in_table_cell(self):
+        report_template = ReportDocxTemplateFactory()
+        report_config = ReportConfiguration.get_solo()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            evidence_name = "gw-evidence-table-cell.txt"
+            evidence_path = os.path.join(temp_dir, evidence_name)
+            with open(evidence_path, "w", encoding="utf-8") as evidence_file:
+                evidence_file.write("evidence contents")
+
+            for caption_location in ("top", "bottom"):
+                with self.subTest(caption_location=caption_location):
+                    report_config.figure_caption_location = caption_location
+                    doc = docx.Document()
+                    with override_settings(MEDIA_ROOT=temp_dir):
+                        HtmlToDocxWithEvidence.run(
+                            '<table><tr><td><div class="richtext-evidence" '
+                            'data-evidence-id="1"></div></td></tr></table>',
+                            doc,
+                            evidences={
+                                1: {
+                                    "path": evidence_name,
+                                    "friendly_name": "Evidence",
+                                    "caption": "Caption",
+                                }
+                            },
+                            report_template=report_template,
+                            global_report_config=report_config,
+                            images={},
+                        )
+
+                    cell_paragraphs = doc.tables[0].cell(0, 0).paragraphs
+                    body_text = "\n".join(
+                        paragraph.text for paragraph in doc.paragraphs
+                    )
+                    self.assertNotIn("evidence contents", body_text)
+                    self.assertNotIn("Caption", body_text)
+                    self.assertIn(
+                        "evidence contents",
+                        [paragraph.text for paragraph in cell_paragraphs],
+                    )
+                    caption_index = -1 if caption_location == "bottom" else 0
+                    self.assertIn("Caption", cell_paragraphs[caption_index].text)
+
+    def test_image_alignment_uses_global_default_when_template_defers(self):
+        report_template = ReportDocxTemplateFactory(
+            evidence_image_alignment=EvidenceImageAlignmentOverride.USE_GLOBAL,
+        )
+        report_config = ReportConfiguration.get_solo()
+        report_config.evidence_image_alignment = EvidenceImageAlignment.RIGHT
+        doc = docx.Document()
+        converter = self.build_converter(report_template=report_template, report_config=report_config, doc=doc)
+
+        with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
+            image_file.write(self.ONE_PIXEL_PNG)
+            image_file.flush()
+            paragraph = doc.add_paragraph()
+            converter._make_image(paragraph, image_file.name)
+
+        self.assertEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.RIGHT)
+
+    def test_image_alignment_uses_template_override(self):
+        report_template = ReportDocxTemplateFactory(
+            evidence_image_alignment=EvidenceImageAlignmentOverride.LEFT,
+        )
+        report_config = ReportConfiguration.get_solo()
+        report_config.evidence_image_alignment = EvidenceImageAlignment.RIGHT
+        doc = docx.Document()
+        converter = self.build_converter(report_template=report_template, report_config=report_config, doc=doc)
+
+        with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
+            image_file.write(self.ONE_PIXEL_PNG)
+            image_file.flush()
+            paragraph = doc.add_paragraph()
+            converter._make_image(paragraph, image_file.name)
+
+        self.assertEqual(paragraph.alignment, WD_ALIGN_PARAGRAPH.LEFT)
+
+    def test_image_width_uses_global_default_when_template_is_blank(self):
+        report_template = ReportDocxTemplateFactory(evidence_image_width=None)
+        report_config = ReportConfiguration.get_solo()
+        report_config.evidence_image_width = 4.75
+
+        converter = self.build_converter(report_template=report_template, report_config=report_config)
+
+        self.assertEqual(converter.image_width, 4.75)
+
+    def test_image_width_falls_back_to_default_when_global_is_blank(self):
+        report_template = ReportDocxTemplateFactory(evidence_image_width=None)
+        report_config = ReportConfiguration.get_solo()
+        report_config.evidence_image_width = None
+
+        converter = self.build_converter(report_template=report_template, report_config=report_config)
+
+        self.assertEqual(converter.image_width, 6.5)

@@ -1,0 +1,193 @@
+import { useMemo } from "react";
+import {
+    IntegerInput,
+    NumberInput,
+    PlainTextInput,
+} from "./plain_editors/input";
+import { usePlainField } from "./plain_editors/field";
+import JsonEditor from "./plain_editors/json_editor";
+import RichTextEditor from "./rich_text_editor";
+import * as Y from "yjs";
+import { HocuspocusProvider } from "@hocuspocus/provider";
+import { Editor } from "@tiptap/core";
+
+/// Emitted from ExtraFieldsSpecSerializer
+export type ExtraFieldSpec = {
+    internal_name: string;
+    display_name: string;
+    description: string;
+    type:
+        | "checkbox"
+        | "single_line_text"
+        | "rich_text"
+        | "integer"
+        | "float"
+        | "json";
+};
+
+export function useExtraFieldSpecs(): ExtraFieldSpec[] {
+    return useMemo(
+        () =>
+            JSON.parse(
+                document.getElementById("yjs-extra-field-specs")!.innerHTML
+            ),
+        []
+    );
+}
+
+export default function ExtraFieldsSection(props: {
+    connected: boolean;
+    provider: HocuspocusProvider;
+    header?: React.ReactNode;
+    toolbarExtra?: (editor: Editor) => React.ReactNode;
+    setEditing?: (editing: boolean) => void;
+}) {
+    const specs = useExtraFieldSpecs();
+
+    return (
+        <>
+            {specs.length > 0 && props.header}
+            {specs.map((spec) => (
+                <div className="form-group col-md-12" key={spec.internal_name}>
+                    {spec.type !== "checkbox" && (
+                        <label>{spec.display_name}</label>
+                    )}
+                    <ExtraFieldInput {...props} spec={spec} />
+                    {spec.description && (
+                        <small className="form-text text-muted">
+                            {spec.description}
+                        </small>
+                    )}
+                </div>
+            ))}
+        </>
+    );
+}
+
+export function ExtraFieldInput(props: {
+    connected: boolean;
+    provider: HocuspocusProvider;
+    spec: ExtraFieldSpec;
+    toolbarExtra?: (editor: Editor) => React.ReactNode;
+    setEditing?: (editing: boolean) => void;
+}) {
+    const map = useMemo(
+        () => props.provider.document.getMap("extra_fields"),
+        [props.provider]
+    );
+    switch (props.spec.type) {
+        case "checkbox":
+            return (
+                <CheckboxExtraField
+                    connected={props.connected}
+                    map={map}
+                    spec={props.spec}
+                />
+            );
+        case "float":
+            return (
+                <NumberInput
+                    connected={props.connected}
+                    provider={props.provider}
+                    map={map}
+                    mapKey={props.spec.internal_name}
+                    inputProps={{ className: "form-control mb-3" }}
+                    defaultValue={0}
+                    setEditing={props.setEditing}
+                />
+            );
+        case "integer":
+            return (
+                <IntegerInput
+                    connected={props.connected}
+                    provider={props.provider}
+                    map={map}
+                    mapKey={props.spec.internal_name}
+                    inputProps={{ className: "form-control mb-3" }}
+                    defaultValue={0}
+                    setEditing={props.setEditing}
+                />
+            );
+        case "single_line_text":
+            return (
+                <PlainTextInput
+                    connected={props.connected}
+                    provider={props.provider}
+                    map={map}
+                    mapKey={props.spec.internal_name}
+                    inputProps={{ className: "form-control mb-3" }}
+                    setEditing={props.setEditing}
+                />
+            );
+        case "rich_text":
+            let frag = map.get(props.spec.internal_name);
+            if (!(frag instanceof Y.XmlFragment)) {
+                if (!props.connected) return <p>Loading...</p>;
+                frag = new Y.XmlFragment();
+                map.set(props.spec.internal_name, frag);
+            }
+
+            return (
+                <RichTextEditor
+                    connected={props.connected}
+                    provider={props.provider}
+                    fragment={frag as Y.XmlFragment}
+                    toolbarExtra={props.toolbarExtra}
+                />
+            );
+        case "json":
+            return (
+                <JsonEditor
+                    connected={props.connected}
+                    map={map}
+                    mapKey={props.spec.internal_name}
+                />
+            );
+        default:
+            props.spec.type satisfies never;
+            console.warn(
+                "Unrecognized extra field type (this is a bug):",
+                props.spec.type
+            );
+            return null;
+    }
+}
+
+function CheckboxExtraField(props: {
+    connected: boolean;
+    map: Y.Map<any>;
+    spec: ExtraFieldSpec;
+}) {
+    const [docValue, setDocValue] = usePlainField<boolean | undefined>(
+        props.map,
+        props.spec.internal_name,
+        undefined
+    );
+
+    if (!props.connected && docValue === undefined) {
+        return <p className="form-text text-muted mb-3">Loading...</p>;
+    }
+
+    const inputId = `extra-field-${props.spec.internal_name}`;
+
+    return (
+        <div className="custom-control custom-switch mb-3">
+            <input
+                className="custom-control-input"
+                id={inputId}
+                type="checkbox"
+                disabled={!props.connected}
+                checked={docValue ?? false}
+                onChange={(ev) => {
+                    setDocValue((ev.target as HTMLInputElement).checked);
+                }}
+            />
+            <label
+                className="custom-control-label form-check-label"
+                htmlFor={inputId}
+            >
+                {props.spec.display_name}
+            </label>
+        </div>
+    );
+}

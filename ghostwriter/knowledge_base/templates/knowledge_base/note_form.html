@@ -1,0 +1,100 @@
+{% extends "base_generic.html" %}
+
+{% load crispy_forms_tags kb_tags %}
+
+{% block pagetitle %}{% if object %}Edit Note{% else %}New Note{% endif %}{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'knowledge_base:index' %}">Knowledge Base</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{% if object %}{{ object.title }}{% else %}New Note{% endif %}</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="row">
+    <div class="col-8">
+      <h1 class="page-title">{% if object %}Edit Note{% else %}New Note{% endif %}</h1>
+      <form method="post" id="note-form">
+        {% csrf_token %}
+        {% crispy form %}
+        <button type="submit" class="btn btn-primary icon save-icon mt-2">Save Note</button>
+        <a class="btn btn-secondary mt-2" href="{% url 'knowledge_base:index' %}">Cancel</a>
+      </form>
+    </div>
+    <div class="col-4">
+      <div class="card">
+        <div class="card-header">Preview</div>
+        <div class="card-body" id="kb-preview"><p class="text-muted mb-0">Live preview of the first 2,000 characters.</p></div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block morescripts %}
+  <script>
+    $(function () {
+      const editor = document.getElementById('id_body_markdown');
+      const preview = document.getElementById('kb-preview');
+
+      function refreshPreview() {
+        // Server-side rendering happens on save; the preview here just tracks
+        // the current body so users see live feedback while typing.
+        preview.textContent = editor.value.slice(0, 2000) + (editor.value.length > 2000 ? '…' : '');
+      }
+
+      $(editor).on('input', refreshPreview);
+
+      // [[link]] autocomplete
+      const autocompleteList = $('<ul class="list-group kb-autocomplete"></ul>').hide().appendTo(editor.parentElement);
+      $(editor).on('input', function () {
+        const value = editor.value;
+        const cursor = editor.selectionStart;
+        const before = value.slice(0, cursor);
+        const match = before.match(/\[\[([^\]]*)$/);
+        if (!match) {
+          autocompleteList.hide().empty();
+          return;
+        }
+        const query = match[1];
+        $.getJSON("{% url 'knowledge_base:ajax_autocomplete' %}", {q: query}, function (data) {
+          autocompleteList.empty().show();
+          if (!data.titles.length) {
+            autocompleteList.append('<li class="list-group-item text-muted py-1">No matching notes</li>');
+          }
+          data.titles.forEach(function (title) {
+            const item = $('<li class="list-group-item py-1 kb-autocomplete-item">' + title + '</li>');
+            item.on('click', function () {
+              const start = before.lastIndexOf('[[');
+              const after = value.slice(cursor);
+              const newValue = value.slice(0, start) + '[[' + title + ']]' + after;
+              editor.value = newValue;
+              editor.focus();
+              editor.selectionStart = editor.selectionEnd = start + title.length + 4;
+              autocompleteList.hide().empty();
+              refreshPreview();
+            });
+            autocompleteList.append(item);
+          });
+        });
+      });
+
+      $(editor).on('blur', function () {
+        setTimeout(function () { autocompleteList.hide().empty(); }, 150);
+      });
+    });
+  </script>
+  <style>
+    .kb-autocomplete {
+      position: absolute;
+      z-index: 1050;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .kb-autocomplete-item { cursor: pointer; }
+    .kb-autocomplete-item:hover { background: #f1f3f4; }
+  </style>
+{% endblock %}

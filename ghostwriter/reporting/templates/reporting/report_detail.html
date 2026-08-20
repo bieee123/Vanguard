@@ -1,0 +1,1076 @@
+{% extends "base_generic.html" %}
+{% load crispy_forms_tags report_tags bleach_tags custom_tags extra_fields determine_primary settings_tags static %}
+
+{% block pagetitle %}{{ report.title }}{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item">{% if CONSULTING_MODE %}<a data-toggle="tooltip" title="{{ report.project.client }}"
+                                     href="{% url 'rolodex:client_detail' report.project.client.id %}">{{ report.project.client }}</a>{% else %}{{ report.project.client }}{% endif %}
+      </li>
+      <li class="breadcrumb-item"><a data-toggle="tooltip"
+                                     title="{{ report.project }}"
+                                     href="{% url 'rolodex:project_detail' report.project.id %}">{{ report.project.start_date }} {{ report.project.project_type }}</a>
+      </li>
+      <li class="breadcrumb-item active" aria-current="page">{{ report }}</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="dropdown">
+    <div class="dropdown-menu-btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
+         onclick="hamburger(this)">
+      <div class="bar1"></div>
+      <div class="bar2"></div>
+      <div class="bar3"></div>
+    </div>
+    <div class="dropdown-menu dropdown-menu-right" aria-labelledby="report-dropdown-btn">
+      <a title="Set this report as your active report" href="javascript:void(0)"
+         class="dropdown-item icon power-icon clickable-link js-activate-report"
+         activate-report-csrftoken="{{ csrf_token }}"
+         activate-report-url="{% url 'reporting:ajax_activate_report' report.id %}"
+         activate-report-id="{{ report.id }}">Activate</a>
+      <a class="dropdown-item icon edit-icon" href="{% url 'reporting:report_update' report.id %}">Edit</a>
+      <a class="dropdown-item icon clone-icon" href="{% url 'reporting:report_clone' report.id %}">Clone</a>
+      <a class="dropdown-item icon project-icon" href="{% url 'rolodex:project_detail' report.project.id %}">Jump to
+        Project</a>
+      {% if CONSULTING_MODE %}<a class="dropdown-item icon company-icon" href="{% url 'rolodex:client_detail' report.project.client.id %}">Jump
+        to Client</a>{% endif %}
+      <a class="dropdown-item icon archive-icon" href="{% url 'reporting:archive' report.id %}">Archive</a>
+      <a class="dropdown-item icon trash-icon" href="{% url 'reporting:report_delete' report.id %}">Delete</a>
+    </div>
+  </div>
+
+  <div class="container offset-col-1 col-10">
+    <h2>{{ report.title }}</h2>
+  </div>
+  {% for tag in report.tags.names %}
+    <span class="badge badge-secondary">{{ tag }}</span>
+  {% endfor %}
+  <hr>
+
+  <p class="form-spacer"></p>
+
+  <div>
+    <ul id="tab-bar" class="nav nav-tabs nav-justified">
+      {% include "snippets/report_nav_tabs.html" %}
+    </ul>
+
+    <div class="tab-content">
+      {% comment %} Status Tab {% endcomment %}
+      <div id="status" class="tab-pane">
+        <h4>Report Status</h4>
+        <hr/>
+
+        {% with report.project.end_date|add_days:report_config.target_delivery_date|date:"DATE_FORMAT" as delivery_date %}
+          <h6>Target Due Date:
+            <span
+              class="{% if delivery_date|days_left <= 1 %}task-imminent{% elif delivery_date|days_left <= 5 %}task-due-soon{% else %}task-future{% endif %}">
+              {{ delivery_date }}
+            </span>
+          </h6>
+        {% endwith %}
+
+        <h6 class="row justify-content-md-center">
+          <span class="col-3 text-left">
+            Report Status:
+            {% if report.complete %}
+              <span id="js-report-status" class="pl-1">Complete</span>
+            {% else %}
+              <span id="js-report-status" class="pl-1">Draft</span>
+            {% endif %}
+          </span>
+          <span class="col-1">
+            {% if report.complete %}
+              <a title="Mark report as incomplete" data-toggle="tooltip" href="javascript:void(0)"
+                 class="clickable-link js-toggle-report-status" toggle-report-status-csrftoken="{{ csrf_token }}"
+                 toggle-report-status-url="{% url 'reporting:ajax_toggle_report_status' report.id %}"
+                 toggle-report-status-id="{{ report.id }}"><i id="js-report-status-icon"
+                                                              class="fas fa-toggle-on"></i></a>
+            {% else %}
+              <a title="Mark report as complete" data-toggle="tooltip" href="javascript:void(0)"
+                 class="clickable-link js-toggle-report-status" toggle-report-status-csrftoken="{{ csrf_token }}"
+                 toggle-report-status-url="{% url 'reporting:ajax_toggle_report_status' report.id %}"
+                 toggle-report-status-id="{{ report.id }}"><i id="js-report-status-icon" class="fas fa-toggle-off"></i></a>
+            {% endif %}
+          </span>
+        </h6>
+
+        <h6 class="row justify-content-md-center">
+          <span class="col-3 text-left">
+            Delivery Status:
+            {% if report.delivered %}
+              <span id="js-delivery-status">Delivered</span>
+            {% else %}
+              <span id="js-delivery-status">Not Delivered</span>
+            {% endif %}
+          </span>
+          <span class="col-1">
+            {% if report.delivered %}
+              <a title="Mark report as not delivered" data-toggle="tooltip" href="javascript:void(0)"
+                 class="clickable-link js-toggle-delivery-status" toggle-delivery-status-csrftoken="{{ csrf_token }}"
+                 toggle-delivery-status-url="{% url 'reporting:ajax_toggle_report_delivery' report.id %}"
+                 toggle-delivery-status-id="{{ report.id }}"><i id="js-delivery-status-icon"
+                                                                class="fas fa-toggle-on"></i></a>
+            {% else %}
+              <a title="Mark report as delivered" data-toggle="tooltip" href="javascript:void(0)"
+                 class="clickable-link js-toggle-delivery-status" toggle-delivery-status-csrftoken="{{ csrf_token }}"
+                 toggle-delivery-status-url="{% url 'reporting:ajax_toggle_report_delivery' report.id %}"
+                 toggle-delivery-status-id="{{ report.id }}"><i id="js-delivery-status-icon"
+                                                                class="fas fa-toggle-off"></i></a>
+            {% endif %}
+          </span>
+        </h6>
+
+        <h4>Report Configuration</h4>
+        <hr>
+
+        <table class="table table-responsive-lg table-borderless table-config">
+          <tr>
+            <td class="text-left icon hash-icon">Figure Label & Prefix</td>
+            <td class="text-justify">{{ report_config.label_figure }}{{ report_config.prefix_figure }}</td>
+          </tr>
+          <tr>
+            <td class="text-left icon hash-icon">Figure Caption Location</td>
+            <td class="text-justify">{{ report_config.get_figure_caption_location_display }}</td>
+          </tr>
+          <tr>
+            <td class="text-left icon align-icon">Default Evidence Image Alignment</td>
+            <td class="text-justify">{{ report_config.get_evidence_image_alignment_display }}</td>
+          </tr>
+          <tr>
+            <td class="text-left icon width-icon">Default Evidence Image Width</td>
+            <td class="text-justify">
+              {% if report_config.evidence_image_width is not None %}
+                {{ report_config.evidence_image_width }}
+              {% else %}
+                6.5
+              {% endif %}
+              inches
+            </td>
+          </tr>
+          <tr>
+            <td class="text-left icon hash-icon">Table Label & Prefix</td>
+            <td class="text-justify">{{ report_config.label_table }}{{ report_config.prefix_table }}</td>
+          </tr>
+          <tr>
+            <td class="text-left icon hash-icon">Table Caption Location</td>
+            <td class="text-justify">{{ report_config.get_table_caption_location_display }}</td>
+          </tr>
+          <tr>
+            <td class="text-left icon toggle-on-icon">Title Case Captions</td>
+            <td class="text-justify">
+              {% if report_config.title_case_captions %}
+                <span class="align-middle healthy"><i class="fas fa-check"></i></span>
+              {% else %}
+                <span class="align-middle burned"><i class="fas fa-times"></i></span>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-left icon wand-icon">Title Case Exceptions</td>
+            <td class="text-justify"> {{ report_config.title_case_exceptions|split_and_join:"," }}</td>
+          </tr>
+          <tr>
+            <td class="text-left icon toggle-on-icon">Image Borders</td>
+            <td class="text-justify">
+              {% if report_config.enable_borders %}
+                <span class="align-middle healthy"><i class="fas fa-check"></i></span>
+              {% else %}
+                <span class="align-middle burned"><i class="fas fa-times"></i></span>
+              {% endif %}
+            </td>
+          </tr>
+          {% if report_config.enable_borders %}
+            <tr>
+              <td class="text-left icon border-icon">Image Border Weight</td>
+              <td class="text-justify">{{ report_config.border_weight }} EMUs
+                ({{ report_config.border_weight|divide:12700 }}
+                pt)
+              </td>
+            </tr>
+            <tr>
+              <td class="text-left icon border-icon">Image Border Color</td>
+              <td class="text-justify">#{{ report_config.border_color }} <i class="fas fa-tint"
+                                                                            style="color:#{{ report_config.border_color }}"></i>
+              </td>
+            </tr>
+            <tr>
+              <td class="text-left icon signature-icon">Report Download Filename</td>
+              <td class="text-justify"> {{ report_config.report_filename }}</td>
+            </tr>
+            <tr>
+              <td class="text-left icon calendar-icon">Delivery Date</td>
+              <td class="text-justify">{% if report_config.target_delivery_date > 0 %}
+                +{% endif %}{{ report_config.target_delivery_date }} business days
+              </td>
+            </tr>
+            <tr>
+              <td class="text-left icon tag-icon">Operation Log Tags</td>
+              <td class="text-justify">
+                {% if report_config.outline_tags %}
+                  {{ report_config.outline_tags|humanize_comma_list }}
+                {% else %}
+                  report and evidence
+                {% endif %}
+              </td>
+            </tr>
+          {% endif %}
+        </table>
+      </div>
+
+      {% comment %} Findings Tab {% endcomment %}
+      <div id="findings" class="tab-pane in active">
+        <h4>Current Findings</h4>
+        <hr>
+
+        <p>Provide a search term and hit Enter to view search results or click an autocomplete option.</p>
+
+        <!-- Search Section -->
+        <form action="{% url 'reporting:findings' %}" method="GET">
+          <div class="search form-row">
+            <div class="input-group offset-md-4 col-md-4">
+              <div class="input-group-prepend">
+                <span class="input-group-text fa fa-search" id="report-findings-search"></span>
+              </div>
+              <input id="id_finding_search" autocomplete="off" type="text" class="form-control" name="finding"
+                     placeholder="Search Findings..." aria-label="findings" aria-describedby="report-findings-search">
+            </div>
+            <input type="submit" style="display: none"/>
+          </div>
+        </form>
+
+        <p class="mt-3 mb-1">Add a finding by adding a blank template below, by searching the library and then
+          clicking the <span class="p-1 add-icon"></span> button in the results, or
+          by clicking an autocomplete result above.</p>
+
+        <p class="mt-0">Drag and drop findings within a severity category to change its ordering. Edit
+          a finding to change its severity.</p>
+
+        <button class="btn btn-primary icon add-icon col-3"
+          onclick="attachBlankFinding()"
+          data-toggle="tooltip"
+          data-placement="top"
+          title="Add a blank finding template to the bottom of the report"
+        >
+          Add a Blank Finding
+        </button>
+
+        <!-- Finding Table Section -->
+        <div id="findingsTable">
+          {% include "snippets/report_findings_table.html" with report=report csrf_token=csrf_token %}
+        </div>
+      </div>
+
+      {% comment %} Observations Tab {% endcomment %}
+      <div id="observations" class="tab-pane">
+        <h4>Current Observations</h4>
+        <hr>
+
+        <p>Provide a search term and hit Enter to view search results or click an autocomplete option.</p>
+
+        <!-- Search Section -->
+        <form action="{% url 'reporting:observations' %}" method="GET">
+          <div class="search form-row">
+            <div class="input-group offset-md-4 col-md-4">
+              <div class="input-group-prepend">
+                <span class="input-group-text fa fa-search" id="report-observations-search"></span>
+              </div>
+              <input id="id_observation_search" autocomplete="off" type="text" class="form-control" name="observation"
+                     placeholder="Search Observations..." aria-label="observations"
+                     aria-describedby="report-observations-search">
+            </div>
+            <input type="submit" style="display: none"/>
+          </div>
+        </form>
+
+        <p class="mt-3">Add an observation by adding a blank template below, by searching the library and then
+          clicking the <span class="p-1 add-icon"></span> button in the results, or
+          by clicking an autocomplete result above.</p>
+
+          <button class="btn btn-primary icon add-icon col-3"
+                  onclick="attachBlankObservation()"
+                  data-toggle="tooltip"
+                  data-placement="top"
+                  title="Add a blank observation template to the bottom of the report"
+          >
+            Add a Blank Observation
+          </button>
+
+        <div id="observationsTable">
+          {% include "snippets/report_observations_table.html" with report=report csrf_token=csrf_token %}
+        </div>
+      </div>
+
+      {% comment %} Report Evidence Tab {% endcomment %}
+      <div id="evidence" class="tab-pane">
+        <h4>Report Evidence</h4>
+        <hr>
+
+        <p>Upload evidence here to make it accessible to all findings and report sections.</p>
+
+        <p class="mt-3"><a class="icon add-icon btn btn-primary col-3"
+                           href="{% url 'reporting:upload_evidence' report.id %}" data-toggle="tooltip"
+                           data-placement="top" title="Upload evidence, attaching to a report">Upload Evidence</a></p>
+
+        {% if report.evidence_set.all %}
+          <table id="evidences-table" class="table table-sm table-hover tablesorter">
+            <thead>
+            <tr>
+              <th class="align-middle text-left">Name</th>
+              <th class="align-middle text-left">Filename</th>
+              <th class="align-middle sorter-false">Options</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for evidence_file in report.evidence_set.all %}
+              <tr data-id="{{ evidence_file.id }}">
+                <td
+                  class="pl-3 text-left align-middle text-left icon {% if evidence_file|get_file_type == "image" %}avatar-upload-icon{% else %}code-icon{% endif %}">
+                  <a href="{% url 'reporting:evidence_detail' evidence_file.id %}" class="clickable">
+                    {{ evidence_file.friendly_name }}
+                  </a>
+                </td>
+                <td class="align-middle text-left">
+                  <em>{{ evidence_file.filename|truncate_filename:50 }}</em>
+                </td>
+
+                <td class="align-middle">
+                  <div class="d-flex justify-content-center">
+                    <span
+                      class="icon preview-icon clickable-link"
+                      title="View additional information"
+                      onclick="openModal('#evidence_detail_{{ evidence_file.id }}')"
+                    ></span>
+                    <a class="icon download-icon" href="javascript:void(0)"
+                       onclick="downloadEvidence({{ evidence_file.id }}, '{{ evidence_file.filename|escapejs }}')" title="Download this evidence file"></a>
+                    <a href="{% url 'reporting:evidence_update' evidence_file.id %}"
+                       title="Edit this evidence file"
+                       class="icon edit-icon"></a>
+                    <a href="{% url 'reporting:evidence_delete' evidence_file.id %}"
+                       title="Delete this evidence file"
+                       class="icon trash-icon"></a>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="mt-3">No evidence has been added to this report yet.</p>
+        {% endif %}
+      </div>
+
+      {% if report_extra_fields_spec %}
+        {% comment %} Extra Fields Tab {% endcomment %}
+        <div id="extra-fields" class="tab-pane">
+          <h4>Extra Fields</h4>
+          <hr/>
+
+          <div class="extra-fields-grid">
+            {% for field_spec in report_extra_fields_spec %}
+              <section class="extra-field-card">
+                <h5 class="extra-field-name">{{ field_spec.display_name }}</h5>
+                <div class="extra-field-type">
+                  {% if field_spec.type == "rich_text" %}
+                    Rich Text Field
+                  {% else %}
+                    {{ field_spec.get_type_display }} Field
+                  {% endif %}
+                </div>
+                <div class="extra-field-type">Reference as <code>extra_fields.{{ field_spec.internal_name }}</code></div>
+                <div class="extra-field-value">
+                  {% if field_spec.type == "rich_text" %}
+                    <span class="extra-field-summary">Use Preview to view formatted content.</span>
+                  {% elif field_spec.type == "json" %}
+                    <span class="extra-field-summary">Use View JSON to inspect structured content.</span>
+                  {% else %}
+                    {% include "user_extra_fields/field.html" with extra_fields=report.extra_fields field_spec=field_spec preview_report=report %}
+                  {% endif %}
+                </div>
+                <div class="extra-field-actions">
+                  {% if field_spec.type == "rich_text" %}
+                    <button type="button" class="btn btn-primary btn-sm icon view-icon" data-toggle="modal"
+                            data-target="#field_spec_{{ field_spec.internal_name }}">Preview
+                    </button>
+                  {% elif field_spec.type == "json" %}
+                    <button type="button" class="btn btn-primary btn-sm icon code-icon" data-toggle="modal"
+                            data-target="#field_spec_{{ field_spec.internal_name }}">View JSON
+                    </button>
+                  {% endif %}
+                  <a href="{% url 'reporting:report_extra_field_edit' report.id field_spec.internal_name %}"
+                     class="btn btn-outline-primary btn-sm icon edit-icon"
+                     title="Edit {{ field_spec.display_name }}">Edit</a>
+                </div>
+              </section>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      {% comment %} Generate Report Tab {% endcomment %}
+      <div id="generate" class="tab-pane">
+        <h4>Generate Reports</h4>
+        <hr>
+
+        <div>
+          {% crispy form form.helper %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block collapse_js %}
+  {{ block.super }}
+{% endblock %}
+
+{% block morescripts %}
+  {% comment %} Modal for the loading spinner {% endcomment %}
+  <div id="spinner-modal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-md" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Stand By!</h5>
+        </div>
+        <div class="modal-body text-center">
+          <h3><i class="fas fa-cog fa-spin"></i> Generating your report...</h3>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{ autocomplete_data|json_script:"report-detail-autocomplete-data" }}
+  <script>
+    const $spinnerModal = $('#spinner-modal')
+    const reportAutocompleteData = JSON.parse(document.getElementById('report-detail-autocomplete-data').textContent);
+
+    {% comment %} Set variables used in `report_findings_table.html` that is updated on changes {% endcomment %}
+    let report_id = '{{ report.id }}';
+    let csrftoken = '{{ csrf_token }}';
+
+    {% comment %} Connect to channel for report-specific notifications {% endcomment %}
+    function webSocketInit() {
+      ws_report = new WebSocket(
+        protocol + window.location.host +
+        '/ws/reports/' + {{ report.id }} + '/');
+
+      {% comment %} Handle successful WebSocket connection {% endcomment %}
+      ws_report.onopen = function () {
+        console.log('Connected to report notification WebSocket');
+        $spinnerModal.modal('hide');
+      };
+
+      {% comment %} Handle receiving report-specific messages {% endcomment %}
+      ws_report.onmessage = function (e) {
+        let data = JSON.parse(e.data);
+        if (data.message['status'] === 'success') {
+          console.log('Completed report generation');
+          setTimeout(() => {
+            $spinnerModal.modal('hide');
+          }, 1000);
+        }
+      };
+
+      {% comment %} Handle unexpected WebSocket closures {% endcomment %}
+      ws_report.onclose = function () {
+        console.error('Report notification WebSocket closed unexpectedly');
+        setTimeout(() => {
+          webSocketInit();
+        }, 2000);
+      };
+    }
+
+    webSocketInit();
+
+    {% comment %} Display the loading spinner while report generates {% endcomment %}
+    $('.js-generate-report').click(function () {
+      $spinnerModal.modal('show');
+      // Wait 30 seconds and hide the spinner – just in case there is an error that prevents it from closing via WebSockets
+      setTimeout(() => {
+        $spinnerModal.modal('hide');
+      }, 20000);
+    });
+
+    {% comment %} Toggle Report Status with AJAX {% endcomment %}
+    $('.js-toggle-report-status').click(function () {
+      let url = $(this).attr('toggle-report-status-url');
+      let reportId = $(this).attr('toggle-report-status-id');
+      let csrftoken = $(this).attr('toggle-report-status-csrftoken');
+      let statusIcon = $('#js-report-status-icon');
+      let statusText = $('#js-report-status')
+      // Prep AJAX request with CSRF token
+      $.ajaxSetup({
+        beforeSend: function (xhr, settings) {
+          if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+            xhr.setRequestHeader('X-CSRFToken', csrftoken);
+          }
+        }
+      });
+      // Send AJAX POST request
+      $.ajax({
+        url: url,
+        type: 'POST',
+        dataType: 'json',
+        data: {
+          'report': reportId
+        },
+        success: function (data) {
+          console.log(statusText)
+          statusText.html(data['status']);
+          if (data['toggle']) {
+            statusIcon.removeClass('fa-toggle-off')
+            statusIcon.addClass('fa-toggle-on')
+          } else {
+            statusIcon.removeClass('fa-toggle-on')
+            statusIcon.addClass('fa-toggle-off')
+          }
+          if (data['message']) {
+            displayToastTop({type: data['result'], string: data['message'], title: 'Report Update'});
+          }
+        }
+      });
+    });
+
+    {% comment %} Toggle Report Delivery Status with AJAX {% endcomment %}
+    $('.js-toggle-delivery-status').click(function () {
+      let url = $(this).attr('toggle-delivery-status-url');
+      let reportId = $(this).attr('toggle-delivery-status-id');
+      let csrftoken = $(this).attr('toggle-delivery-status-csrftoken');
+      let statusIcon = $('#js-delivery-status-icon');
+      let statusText = $('#js-delivery-status')
+      $.ajaxSetup({
+        beforeSend: function (xhr, settings) {
+          if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+            xhr.setRequestHeader('X-CSRFToken', csrftoken);
+          }
+        }
+      });
+      $.ajax({
+        url: url,
+        type: 'POST',
+        dataType: 'json',
+        data: {
+          'report': reportId
+        },
+        success: function (data) {
+          statusText.html(data['status']);
+          if (data['toggle']) {
+            statusIcon.removeClass('fa-toggle-off')
+            statusIcon.addClass('fa-toggle-on')
+          } else {
+            statusIcon.removeClass('fa-toggle-on')
+            statusIcon.addClass('fa-toggle-off')
+          }
+          if (data['message']) {
+            displayToastTop({type: data['result'], string: data['message'], title: 'Report Update'});
+          }
+        }
+      });
+    });
+
+    {% comment %} Save template selection on change {% endcomment %}
+    $(document).ready(function () {
+      // Check if the URL included a tab anchor and set it as the tab to show if so
+      let hash = $(location).attr('hash');
+      if (hash) {
+        localStorage.setItem('reportDefaultTab', hash);
+      }
+
+      // Manage the URLs for the template link buttons
+      let templateBaseUrl = '/reporting/templates/';
+      let selectedWordTemplate = document.getElementById('id_docx_template').value
+      let selectedPowerPointTemplate = document.getElementById('id_pptx_template').value
+      let $jumpWordBtn = $('.js-jump-to-word-template')
+      let $jumpPptxBtn = $('.js-jump-to-pptx-template')
+
+      $jumpWordBtn.attr('href', templateBaseUrl + selectedWordTemplate);
+      $jumpPptxBtn.attr('href', templateBaseUrl + selectedPowerPointTemplate);
+
+      // Display whatever tab was last selected or default – if null, default to the Findings tab
+      let defaultTab = (localStorage.getItem('reportDefaultTab') !== null ? localStorage.getItem('reportDefaultTab') : 'findings');
+      $('[href="' + defaultTab + '"]').tab('show');
+
+      $('#report-template-swap-form').change(function () {
+        let url = $(this).attr('action');
+        let $docxTemplate = $('#id_docx_template')
+        let $pptxTemplate = $('#id_pptx_template')
+        let $includeBloodhound = $('#id_include_bloodhound_data')
+        let docxTemplateId = $docxTemplate.val();
+        let pptxTemplateId = $pptxTemplate.val();
+        let csrftoken = $('input[name=csrfmiddlewaretoken]').val();
+        if ($pptxTemplate.val() == '') {
+          pptxTemplateId = -1
+        }
+        if ($docxTemplate.val() == '') {
+          docxTemplateId = -1
+        }
+        $.ajaxSetup({
+          beforeSend: function (xhr, settings) {
+            if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+              xhr.setRequestHeader('X-CSRFToken', csrftoken);
+            }
+          }
+        });
+        // Build data payload - only include bloodhound field if it exists
+        let ajaxData = {
+          'docx_template': docxTemplateId,
+          'pptx_template': pptxTemplateId,
+          'csrfmiddlewaretoken': csrftoken,
+        };
+        if ($includeBloodhound.length) {
+          ajaxData['include_bloodhound_data'] = $includeBloodhound.is(':checked');
+        }
+        $.ajax({
+          url: url,
+          type: 'POST',
+          dataType: 'json',
+          data: ajaxData,
+          success: function (data) {
+            if (data['message']) {
+              displayToastTop({type: data['result'], string: data['message'], title: 'Template Update'});
+            }
+            if (data['docx_lint_message']) {
+              displayToastTop({
+                type: data['docx_lint_result'],
+                string: data['docx_lint_message'],
+                title: 'Template Issue',
+                delay: 10
+              });
+            }
+            if (data['pptx_lint_message']) {
+              displayToastTop({
+                type: data['pptx_lint_result'],
+                string: data['pptx_lint_message'],
+                title: 'Template Issue',
+                delay: 10
+              });
+            }
+            if (data['warnings'] && Array.isArray(data['warnings'])) {
+              data['warnings'].forEach(function(warning) {
+                displayToastTop({
+                  type: 'warning',
+                  string: warning,
+                  title: 'BloodHound Template Warning',
+                  delay: 10
+                });
+              });
+            }
+            $jumpWordBtn.attr('href', templateBaseUrl + docxTemplateId);
+            $jumpPptxBtn.attr('href', templateBaseUrl + pptxTemplateId);
+          }
+        });
+      });
+    });
+
+    {%  comment %} Enable autocomplete for the findings and observations search {% endcomment %}
+    $(function () {
+      $("#id_finding_search").autocomplete({
+        source: reportAutocompleteData.findings,
+        minLength: 0,
+        open: function () {
+          $("ul.ui-menu").width($(this).innerWidth());
+        },
+        select: function (event, ui) {
+          let url = ui.item.url
+          let findingId = ui.item.id
+          // Prep AJAX request with CSRF token
+          $.ajaxSetup({
+            beforeSend: function (xhr, settings) {
+              if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+                xhr.setRequestHeader('X-CSRFToken', csrftoken);
+              }
+            }
+          });
+          // Send AJAX POST request
+          $.ajax({
+            url: url,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+              'finding': findingId,
+              'report': report_id
+            },
+            success: function (data) {
+              if (data['result'] == 'success') {
+                $('#findingsTable').html(data['table_html']);
+                // Clear the input field after successful AJAX call
+                $("#id_finding_search").val('');
+              }
+              if (data['message']) {
+                displayToastTop({type: data['result'], string: data['message'], title: 'Finding Assigned'});
+              }
+            }
+          });
+        }
+      }).focus(function () {
+        $(this).autocomplete('search', $(this).val())
+      });
+    });
+
+    $(function () {
+      $("#id_observation_search").autocomplete({
+        source: reportAutocompleteData.observations,
+        minLength: 0,
+        open: function () {
+          $("ul.ui-menu").width($(this).innerWidth());
+        },
+        select: function (event, ui) {
+          let url = ui.item.url
+          let observationId = ui.item.id
+          // Prep AJAX request with CSRF token
+          $.ajaxSetup({
+            beforeSend: function (xhr, settings) {
+              if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+                xhr.setRequestHeader('X-CSRFToken', csrftoken);
+              }
+            }
+          });
+          // Send AJAX POST request
+          $.ajax({
+            url: url,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+              'observation': observationId,
+              'report': report_id
+            },
+            success: function (data) {
+              if (data['result'] == 'success') {
+                $('#observationsTable').html(data['table_html']);
+                // Clear the input field after successful AJAX call
+                $("#id_observation_search").val('');
+              }
+              if (data['message']) {
+                displayToastTop({type: data['result'], string: data['message'], title: 'Observation Assigned'});
+              }
+            }
+          });
+        }
+      }).focus(function () {
+        $(this).autocomplete('search', $(this).val())
+      });
+    });
+
+    {% comment %} Enable table sorting for the evidence table {% endcomment %}
+    $(document).ready(function () {
+      $(".tablesorter").tablesorter({
+        cssAsc: ' down',
+        cssDesc: 'up',
+        cssNone: 'none',
+      });
+      $('.tablesorter').trigger('update');
+    });
+
+    let evidenceFiles = [
+      {
+        text: '\{\{.caption\}\}',
+        value: '<p class="evidence-caption">{{ report_config.label_figure|force_escape|escapejs }} # {{ report_config.prefix_figure|force_escape|escapejs }} '
+      },
+      {% if report.evidence_set.all  %}
+        {% for evidence in report.evidence_set.all %}
+          {
+            text: '\{\{.{{ evidence.friendly_name|escapejs }}\}\}',
+            value: '{% url 'reporting:evidence_preview' evidence.id %}'
+          },
+        {% endfor %}
+      {% endif %}
+    ];
+
+
+    function attachBlankObservation () {
+      let attachBlankObsUrl = '{% url 'reporting:assign_blank_observation' report.id %}'
+      // Prep AJAX request with CSRF token
+      $.ajaxSetup({
+        beforeSend: function (xhr, settings) {
+          if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+            xhr.setRequestHeader('X-CSRFToken', csrftoken);
+          }
+        }
+      });
+      // Send AJAX POST request
+      $.ajax({
+        url: attachBlankObsUrl,
+        type: 'POST',
+        dataType: 'json',
+        data: {},
+        success: function (data) {
+          if (data['result'] == 'success') {
+            $('#observationsTable').html(data['table_html']);
+          }
+          if (data['message']) {
+            displayToastTop({type: data['result'], string: data['message'], title: 'Observation Assigned'});
+          }
+        }
+      });
+    }
+
+    function attachBlankFinding () {
+      let attachBlankObsUrl = '{% url 'reporting:assign_blank_finding' report.id %}'
+      // Prep AJAX request with CSRF token
+      $.ajaxSetup({
+        beforeSend: function (xhr, settings) {
+          if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+            xhr.setRequestHeader('X-CSRFToken', csrftoken);
+          }
+        }
+      });
+      // Send AJAX POST request
+      $.ajax({
+        url: attachBlankObsUrl,
+        type: 'POST',
+        dataType: 'json',
+        data: {},
+        success: function (data) {
+          if (data['result'] == 'success') {
+            $('#findingsTable').html(data['table_html']);
+          }
+          if (data['message']) {
+            displayToastTop({type: data['result'], string: data['message'], title: 'Finding Assigned'});
+          }
+        }
+      });
+    }
+
+    function downloadEvidence(evidenceId, filename) {
+      fetch("{% url 'reporting:evidence_download' 0 %}".replace('0', evidenceId), {
+        method: 'GET',
+      })
+        .then(response => {
+          if (!response.ok) {
+            if (response.status === 404) {
+              displayToastTop({
+                type: 'error',
+                string: 'Evidence file not found. The file may have been deleted or moved.'
+              });
+            } else {
+              displayToastTop({type: 'error', string: 'Error downloading evidence file: ' + response.statusText});
+            }
+            throw new Error('Network response was not ok');
+          }
+          return response.blob();
+        })
+        .then(blob => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          displayToastTop({type: 'success', string: 'Download started...'});
+        })
+        .catch(error => {
+          console.error('Error:', error);
+        });
+    }
+  </script>
+
+  {% comment %} Include the reusable delete confirmation modal and related scripts {% endcomment %}
+  {% include "confirm_delete_modal.html" %}
+
+  {% comment %} Insert modals for rich text and JSON extra field previews {% endcomment %}
+  {% if report_extra_fields_spec %}
+    {% for field_spec in report_extra_fields_spec %}
+      {% url 'reporting:report_extra_field_json' report.id field_spec.internal_name as extra_field_json_url %}
+      {% url 'reporting:report_extra_field_richtext' report.id field_spec.internal_name as extra_field_richtext_url %}
+      {% include "user_extra_fields/extra_field_modal.html" with extra_fields=report.extra_fields field_spec=field_spec preview_report=report lazy_json_url=extra_field_json_url lazy_richtext_url=extra_field_richtext_url %}
+    {% endfor %}
+
+    {% include "user_extra_fields/lazy_json_modal_script.html" %}
+    {% include "user_extra_fields/lazy_richtext_modal_script.html" %}
+
+    <script>
+      {% comment %} Store the last selected tab to return to it on page reload {% endcomment %}
+      $('.nav-link').click(function () {
+        let tab = $(this).attr('href');
+        localStorage.setItem("reportDefaultTab", tab);
+      });
+    </script>
+  {% endif %}
+
+  {% comment %} Finding preview modal {% endcomment %}
+  <div id="finding-preview-modal" class="modal fade" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-super-sized modal-dialog-scrollable" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title" id="finding-preview-modal-title">Finding Preview</h5>
+            <p class="text-muted small mb-0">
+              This preview closely approximates report output using the report configuration and selected Word template settings. Only fields with content will be displayed in the preview.
+            </p>
+          </div>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body" id="finding-preview-modal-body">
+          <p class="text-muted mb-0">Finding preview will load when opened.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary col-3" data-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const findingPreviewPlaceholder = '<p class="text-muted mb-0">Finding preview will load when opened.</p>';
+    const findingPreviewLoading = (
+      '<div class="text-center text-muted py-5" role="status" aria-live="polite">' +
+      '<i class="fas fa-spinner fa-spin fa-2x mb-3" aria-hidden="true"></i>' +
+      '<p class="mb-0">Rendering finding preview&hellip;</p>' +
+      '</div>'
+    );
+
+    let findingPreviewAbortController = null;
+
+    $('#finding-preview-modal').on('show.bs.modal', function (event) {
+      const $trigger = $(event.relatedTarget);
+      const previewUrl = $trigger.data('finding-preview-url');
+      const findingTitle = $trigger.data('finding-title') || 'Finding Preview';
+      const $body = $('#finding-preview-modal-body');
+      const $title = $('#finding-preview-modal-title');
+
+      $title.text(findingTitle);
+      $body.html(findingPreviewLoading);
+      findingPreviewAbortController = window.AbortController ? new AbortController() : null;
+
+      $(this).one('shown.bs.modal', function () {
+        const loadingStartedAt = performance.now();
+        requestAnimationFrame(function () {
+          fetch(previewUrl, {
+            method: 'GET',
+            credentials: 'same-origin',
+            signal: findingPreviewAbortController ? findingPreviewAbortController.signal : undefined,
+          })
+            .then(response => {
+              if (!response.ok) throw new Error('Unable to render finding preview.');
+              return response.text();
+            })
+            .then(html => {
+              const remaining = Math.max(0, 350 - (performance.now() - loadingStartedAt));
+              setTimeout(function () {
+                if (!$('#finding-preview-modal').hasClass('show')) return;
+                $body.html('<div class="rich-text-field-preview">' + html + '</div>');
+                $body.find('[data-toggle="tooltip"]').tooltip();
+              }, remaining);
+            })
+            .catch(error => {
+              if (error.name === 'AbortError') return;
+              console.error(error);
+              $body.html('<p class="burned mb-0">Unable to render finding preview.</p>');
+            });
+        });
+      });
+    });
+
+    $('#finding-preview-modal').on('hide.bs.modal', function () {
+      if (findingPreviewAbortController) findingPreviewAbortController.abort();
+      findingPreviewAbortController = null;
+      $('#finding-preview-modal-body').html(findingPreviewPlaceholder);
+      $('#finding-preview-modal-title').text('Finding Preview');
+    });
+  </script>
+
+  {% comment %} Observation preview modal {% endcomment %}
+  <div id="observation-preview-modal" class="modal fade" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-super-sized modal-dialog-scrollable" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title" id="observation-preview-modal-title">Observation Preview</h5>
+            <p class="text-muted small mb-0">
+              This preview closely approximates report output using the report configuration and selected Word template settings. Only fields with content will be displayed in the preview.
+            </p>
+          </div>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body" id="observation-preview-modal-body">
+          <p class="text-muted mb-0">Observation preview will load when opened.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary col-3" data-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const observationPreviewPlaceholder = '<p class="text-muted mb-0">Observation preview will load when opened.</p>';
+    const observationPreviewLoading = (
+      '<div class="text-center text-muted py-5" role="status" aria-live="polite">' +
+      '<i class="fas fa-spinner fa-spin fa-2x mb-3" aria-hidden="true"></i>' +
+      '<p class="mb-0">Rendering observation preview&hellip;</p>' +
+      '</div>'
+    );
+
+    let observationPreviewAbortController = null;
+
+    $('#observation-preview-modal').on('show.bs.modal', function (event) {
+      const $trigger = $(event.relatedTarget);
+      const previewUrl = $trigger.data('observation-preview-url');
+      const obsTitle = $trigger.data('observation-title') || 'Observation Preview';
+      const $body = $('#observation-preview-modal-body');
+      const $title = $('#observation-preview-modal-title');
+
+      $title.text(obsTitle);
+      $body.html(observationPreviewLoading);
+      observationPreviewAbortController = window.AbortController ? new AbortController() : null;
+
+      $(this).one('shown.bs.modal', function () {
+        const loadingStartedAt = performance.now();
+        requestAnimationFrame(function () {
+          fetch(previewUrl, {
+            method: 'GET',
+            credentials: 'same-origin',
+            signal: observationPreviewAbortController ? observationPreviewAbortController.signal : undefined,
+          })
+            .then(response => {
+              if (!response.ok) throw new Error('Unable to render observation preview.');
+              return response.text();
+            })
+            .then(html => {
+              const remaining = Math.max(0, 350 - (performance.now() - loadingStartedAt));
+              setTimeout(function () {
+                if (!$('#observation-preview-modal').hasClass('show')) return;
+                $body.html('<div class="rich-text-field-preview">' + html + '</div>');
+                $body.find('[data-toggle="tooltip"]').tooltip();
+              }, remaining);
+            })
+            .catch(error => {
+              if (error.name === 'AbortError') return;
+              console.error(error);
+              $body.html('<p class="burned mb-0">Unable to render observation preview.</p>');
+            });
+        });
+      });
+    });
+
+    $('#observation-preview-modal').on('hide.bs.modal', function () {
+      if (observationPreviewAbortController) observationPreviewAbortController.abort();
+      observationPreviewAbortController = null;
+      $('#observation-preview-modal-body').html(observationPreviewPlaceholder);
+      $('#observation-preview-modal-title').text('Observation Preview');
+    });
+  </script>
+
+  {% comment %} Include the evidence lightbox modal {% endcomment %}
+  {% include "snippets/evidence_lightbox_modal.html" %}
+
+  {% comment %} Include evidence lightbox JavaScript {% endcomment %}
+  <script src="{% static 'js/evidence-lightbox.js' %}"></script>
+
+  {% comment %} Insert modals for additional evidence details {% endcomment %}
+  {% get_solo "commandcenter.ReportConfiguration" as report_config %}
+  {% for evidence in report.evidence_set.all %}
+    {% include "snippets/evidence_detail_modal.html" with evidence=evidence %}
+  {% endfor %}
+{% endblock %}

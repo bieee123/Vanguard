@@ -1,0 +1,3144 @@
+"""This contains all the views used by the API application."""
+
+# Standard Libraries
+import io
+import json
+import logging
+import os
+import uuid
+from asgiref.sync import async_to_sync
+from base64 import b64encode
+from datetime import date, datetime
+from http import HTTPStatus
+from socket import gaierror
+
+# Django Imports
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import authenticate, get_user_model
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.files.base import ContentFile
+from django.db.models import Q
+from django.db.utils import IntegrityError
+from django.http import HttpRequest, JsonResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.utils import timezone as django_timezone
+from django.utils.formats import date_format
+from django.views.generic import View
+from django.views.generic.detail import SingleObjectMixin
+from django.views.generic.edit import FormView
+
+# 3rd Party Libraries
+import pytz
+from channels.layers import get_channel_layer
+from dateutil.parser import parse as parse_date
+from dateutil.parser._parser import ParserError
+
+# Ghostwriter Libraries
+from ghostwriter.api import utils
+from ghostwriter.api.forms import (
+    ApiEvidenceForm,
+    ApiKeyForm,
+    ApiOplogRecordingForm,
+    ApiReportTemplateForm,
+    ServiceTokenForm,
+    TokenExpiryForm,
+)
+from ghostwriter.api.models import (
+    APIKey,
+    ServicePrincipal,
+    ServiceToken,
+    ServiceTokenPermission,
+    ServiceTokenProjectScope,
+    UserSession,
+)
+from ghostwriter.commandcenter.models import ExtraFieldModel, GeneralConfiguration
+from ghostwriter.modules import codenames
+from ghostwriter.modules.model_utils import (
+    normalize_finding_positions,
+    set_finding_positions,
+    to_dict,
+)
+from ghostwriter.modules.passive_voice.detector import get_detector
+from ghostwriter.modules.reportwriter import jinja_string_literal
+from ghostwriter.modules.reportwriter.report.json import ExportReportJson
+from ghostwriter.oplog.models import OplogEntry, OplogEntryEvidence, OplogEntryRecording
+from ghostwriter.oplog.utils import extract_cast_text, validate_cast_gzip_upload
+from ghostwriter.reporting.models import (
+    Evidence,
+    Finding,
+    Observation,
+    Report,
+    ReportFindingLink,
+    ReportObservationLink,
+    ReportTemplate,
+)
+from ghostwriter.reporting.views2.report_finding_link import get_position
+from ghostwriter.rolodex.models import (
+    Project,
+    ProjectContact,
+    ProjectObjective,
+    ProjectSubTask,
+)
+from ghostwriter.shepherd.models import (
+    ActivityType,
+    Domain,
+    DomainStatus,
+    History,
+    ServerHistory,
+    ServerRole,
+    ServerStatus,
+    StaticServer,
+)
+
+# Using __name__ resolves to ghostwriter.api.views
+logger = logging.getLogger(__name__)
+
+User = get_user_model()
+
+SERVICE_TOKEN_SCOPE_ANY = "any"
+SERVICE_TOKEN_ANY_PROJECT_READ_REQUIREMENT = {
+    "resource_type": ServiceTokenPermission.ResourceType.PROJECT,
+    "action": ServiceTokenPermission.Action.READ,
+    "scope": SERVICE_TOKEN_SCOPE_ANY,
+}
+COLLAB_EDIT_MODELS = {
+    # Models here need to have a ``user_can_edit(user)`` method.
+    "observation": Observation,
+    "report_observation_link": ReportObservationLink,
+    "finding": Finding,
+    "report_finding_link": ReportFindingLink,
+    "report": Report,
+    "project": Project,
+}
+
+
+########################
+# Custom CBVs & Mixins #
+########################
+
+
+class HasuraView(View):
+    """
+    Custom view class that handles Ghostwriter's JWT authentication via
+    the Hasura GraphQL Engine.
+    """
+
+    # Default/expected status code for all JSON responses sent to Hasura
+    status = 200
+    # Set model for actions that will interact with a specific model
+    model = None
+    object = None
+    # Allowed HTTP methods for Actions (Hasura will only use POST for actions)
+    http_method_names = [
+        "post",
+    ]
+    # Initialize default class attributes
+    user_obj = None
+    api_key_obj = None
+    service_principal_obj = None
+    service_token_obj = None
+    encoded_token = None
+    jwt_token_type = None
+    jwt_payload = None
+    allow_login_jwt = True
+    allow_collab_jwt = False
+
+    def post_authentication(self, request, *args, **kwargs):
+        """Hook for subclasses that need principal-specific authorization."""
+        return None
+
+    def invalid_token_response(self):
+        return JsonResponse(
+            utils.generate_hasura_error_payload(
+                "Received invalid authentication token", "AuthenticationInvalid"
+            ),
+            status=401,
+        )
+
+    def resolve_jwt_user(self, payload):
+        try:
+            return User.objects.get(id=payload["sub"])
+        except User.DoesNotExist:
+            logger.warning(
+                "Received JWT for a user that does not exist: %s",
+                payload,
+            )
+            return None
+
+    def setup(self, request, *args, **kwargs):
+        # Try to pull the bearer credential from the request header
+        self.user_obj = None
+        self.api_key_obj = None
+        self.service_principal_obj = None
+        self.service_token_obj = None
+        self.encoded_token = utils.get_bearer_token_from_request(request)
+        self.jwt_token_type = None
+        self.jwt_payload = None
+        super().setup(request, *args, **kwargs)
+
+    def dispatch(self, request, *args, **kwargs):
+        # Only proceed with final dispatch steps if a bearer credential was acquired
+        if self.encoded_token:
+            # Resolve the credential and store the authenticated principal
+            token_type = utils.get_jwt_type(self.encoded_token)
+            self.jwt_token_type = token_type
+            if self.encoded_token.startswith(f"{ServiceToken.objects.token_prefix}_"):
+                try:
+                    token_entry = ServiceToken.objects.get_valid_from_token(
+                        self.encoded_token
+                    )
+                except ServiceToken.DoesNotExist:
+                    logger.warning("Received an invalid or revoked service token")
+                    return self.invalid_token_response()
+                self.service_token_obj = token_entry
+                self.service_principal_obj = token_entry.service_principal
+                ServiceToken.objects.record_usage(token_entry)
+            elif self.encoded_token.startswith(f"{APIKey.objects.token_prefix}_"):
+                try:
+                    token_entry = APIKey.objects.get_valid_from_token(
+                        self.encoded_token
+                    )
+                except APIKey.DoesNotExist:
+                    logger.warning("Received an invalid or revoked API token")
+                    return self.invalid_token_response()
+                self.user_obj = User.objects.get(id=token_entry.user.id)
+                self.api_key_obj = token_entry
+                APIKey.objects.record_usage(token_entry)
+            else:
+                payload = utils.get_jwt_payload(self.encoded_token)
+                self.jwt_payload = payload
+                if payload and "sub" in payload:
+                    if token_type == utils.USER_JWT_TYPE:
+                        if not self.allow_login_jwt:
+                            return self.invalid_token_response()
+                        try:
+                            session = UserSession.objects.get_valid_from_payload(
+                                payload
+                            )
+                        except UserSession.DoesNotExist:
+                            return self.invalid_token_response()
+                        self.user_obj = session.user
+                    elif token_type == utils.COLLAB_JWT_TYPE:
+                        if not self.allow_collab_jwt:
+                            return self.invalid_token_response()
+                        self.user_obj = self.resolve_jwt_user(payload)
+                        if self.user_obj is None:
+                            return self.invalid_token_response()
+                    else:
+                        return self.invalid_token_response()
+                else:
+                    return self.invalid_token_response()
+            # Only proceed if user is still active
+            if self.user_obj and not self.user_obj.is_active:
+                logger.warning(
+                    "Received JWT for inactive user: %s", self.user_obj.username
+                )
+                return self.invalid_token_response()
+            post_authentication_response = self.post_authentication(
+                request, *args, **kwargs
+            )
+            if post_authentication_response is not None:
+                return post_authentication_response
+        # Authentication may be legitimately missing for actions like ``login``, so proceed either way
+        return super().dispatch(request, *args, **kwargs)
+
+
+class JwtRequiredMixin:
+    """Mixin for ``HasuraView`` to require a bearer credential in the request header."""
+
+    def __init__(self):
+        pass
+
+    def dispatch(self, request, *args, **kwargs):
+        # This does not allow the use of Hasura's ``x-hasura-admin-secret`` header in lieu of a JWT
+        if self.encoded_token:
+            return super().dispatch(request, *args, **kwargs)
+
+        return JsonResponse(
+            utils.generate_hasura_error_payload(
+                "No ``Authorization`` header found", "AuthenticationMissing"
+            ),
+            status=400,
+        )
+
+
+class HasuraActionView(HasuraView):
+    """
+    Custom view class for Hasura Action endpoints. This class adds the following functionality:
+    - Validates the request headers contain the Hasura Action secret
+    - Validates the JSON data from the request body
+    - Ensures an authentication credential is present
+    """
+
+    input = None
+    required_inputs = []
+    allow_large_input = False
+    allow_service_token = False
+    service_token_permission_requirements = ()
+
+    def get_service_token_permission_requirements(
+        self,
+    ) -> tuple[dict[str, object], ...]:
+        """
+        Return explicit token permissions required for a service token to call this action.
+
+        Service tokens are denied for actions unless a view opts in by returning
+        requirements backed by ServiceTokenPermission rows. Subclasses can build
+        requirements from validated input values when an action targets a resource.
+        """
+        return self.service_token_permission_requirements
+
+    def service_token_has_permission(
+        self,
+        resource_type: str,
+        action: str,
+        resource_id: int | None = None,
+        scope: str | None = None,
+    ) -> bool:
+        if self.service_token_obj is None:
+            return False
+        if scope == SERVICE_TOKEN_SCOPE_ANY:
+            if (
+                ServiceToken._choice_value(resource_type)
+                == ServiceTokenPermission.ResourceType.PROJECT
+                and ServiceToken._choice_value(action)
+                == ServiceTokenPermission.Action.READ
+            ):
+                return bool(self.service_token_project_read_ids())
+            return self.service_token_obj.permissions.filter(
+                resource_type=ServiceToken._choice_value(resource_type),
+                action=ServiceToken._choice_value(action),
+            ).exists()
+        return self.service_token_obj.has_permission(resource_type, action, resource_id)
+
+    def service_token_can_read_project_id(self, project_id: int | None) -> bool:
+        if project_id is None:
+            return False
+        return self.service_token_has_permission(
+            ServiceTokenPermission.ResourceType.PROJECT,
+            ServiceTokenPermission.Action.READ,
+            int(project_id),
+        )
+
+    def service_token_project_read_ids(self) -> list[int]:
+        if self.service_token_obj is None:
+            return []
+        if not hasattr(self, "_service_token_project_read_ids"):
+            self._service_token_project_read_ids = (
+                self.service_token_obj.get_current_project_read_ids()
+            )
+        return self._service_token_project_read_ids
+
+    def service_token_has_project_read_grant(self) -> bool:
+        return self.service_token_has_permission(
+            ServiceTokenPermission.ResourceType.PROJECT,
+            ServiceTokenPermission.Action.READ,
+            scope=SERVICE_TOKEN_SCOPE_ANY,
+        )
+
+    def service_token_oplog_read_ids(self) -> list[int]:
+        if self.service_token_obj is None:
+            return []
+        return list(
+            self.service_token_obj.permissions.filter(
+                resource_type=ServiceTokenPermission.ResourceType.OPLOG,
+                action=ServiceTokenPermission.Action.READ,
+            )
+            .exclude(resource_id__isnull=True)
+            .values_list("resource_id", flat=True)
+            .distinct()
+        )
+
+    def service_token_has_oplog_read_grant(self) -> bool:
+        return bool(self.service_token_oplog_read_ids())
+
+    def service_token_can_read_oplog_id(self, oplog_id: int | None) -> bool:
+        if oplog_id is None:
+            return False
+        return self.service_token_has_permission(
+            ServiceTokenPermission.ResourceType.OPLOG,
+            ServiceTokenPermission.Action.READ,
+            int(oplog_id),
+        )
+
+    def authorize_service_token_action(self) -> bool:
+        if self.allow_service_token:
+            return True
+        requirements = self.get_service_token_permission_requirements()
+        if not requirements:
+            return False
+        return all(
+            self.service_token_has_permission(
+                requirement["resource_type"],
+                requirement["action"],
+                requirement.get("resource_id"),
+                requirement.get("scope"),
+            )
+            for requirement in requirements
+        )
+
+    def principal_can_read_project(self, project: Project) -> bool:
+        if self.service_token_obj is not None:
+            return self.service_token_can_read_project_id(project.id)
+        return project.user_can_view(self.user_obj)
+
+    def post_authentication(self, request, *args, **kwargs):
+        if self.service_token_obj is None:
+            return super().post_authentication(request, *args, **kwargs)
+
+        if self.authorize_service_token_action():
+            return None
+
+        logger.warning(
+            "Rejected service token %s for Hasura Action %s",
+            self.service_token_obj.id,
+            self.__class__.__name__,
+        )
+        return JsonResponse(
+            utils.generate_hasura_error_payload(
+                "This service token is not authorized for this action", "Unauthorized"
+            ),
+            status=HTTPStatus.FORBIDDEN,
+        )
+
+    def _get_max_upload_size(self) -> int:
+        return getattr(settings, "GHOSTWRITER_MAX_FILE_SIZE", 10 * 1024 * 1024)
+
+    def _get_max_large_input_body_size(self) -> int:
+        """
+        Return the maximum JSON request-body size for base64-wrapped uploads.
+
+        The configured file-size limit applies to decoded file bytes, but large-input
+        actions carry those bytes in base64 inside a JSON envelope. Allow headroom for
+        base64 expansion and surrounding metadata while still bounding request memory.
+        """
+        return self._get_max_upload_size() * 2
+
+    def setup(self, request, *args, **kwargs):
+        self._content_too_large = False
+        # Load JSON data from request body and look for the Hasura ``input`` key
+        try:
+            if self.allow_large_input:
+                # Read at most max_upload_size+1 bytes so we can distinguish
+                # "fits" from "too large" without consuming unbounded memory.
+                # This protects against both absent and spoofed Content-Length.
+                max_bytes = self._get_max_large_input_body_size()
+                chunk = request.read(max_bytes + 1)
+                if len(chunk) > max_bytes:
+                    self._content_too_large = True
+                else:
+                    data = json.loads(chunk)
+                    self.data = data
+                    if "input" in data:
+                        self.input = data["input"]
+            else:
+                data = json.loads(request.body)
+                self.data = data
+                if "input" in data:
+                    self.input = data["input"]
+        except json.JSONDecodeError:
+            logger.exception(
+                "Failed to decode JSON data from supposed Hasura Action request"
+            )
+        return super().setup(request, *args, **kwargs)
+
+    def dispatch(self, request, *args, **kwargs):
+        # Reject oversized payloads before any further processing
+        if self._content_too_large:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Request payload too large", "PayloadTooLarge"
+                ),
+                status=413,
+            )
+        # For actions, only proceed if the requests checks out as a valid request from Hasura, and we have a JWT
+        if utils.verify_graphql_request(request.headers):
+            # Return 400 if no input was found but some input is required
+            if not self.input and self.required_inputs:
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        "Missing all required inputs", "InvalidRequestBody"
+                    ),
+                    status=400,
+                )
+            # Hasura checks for required values, but we check here in case of a discrepancy between the GraphQL schema and the view
+            for required_input in self.required_inputs:
+                if required_input not in self.input:
+                    return JsonResponse(
+                        utils.generate_hasura_error_payload(
+                            "Missing one or more required inputs", "InvalidRequestBody"
+                        ),
+                        status=400,
+                    )
+            return super().dispatch(request, *args, **kwargs)
+
+        return JsonResponse(
+            utils.generate_hasura_error_payload(
+                "Unauthorized access method", "Unauthorized"
+            ),
+            status=403,
+        )
+
+
+class HasuraCheckoutView(JwtRequiredMixin, HasuraActionView):
+    """
+    Shared validation logic for ``checkoutDomain`` and ``checkoutServer``
+    actions. This class adds a
+    ``status_model`` attribute to determine which status model to use for
+    adjusting the domain or server after checkout. It then handles the
+    common validation steps for both actions.
+    """
+
+    status_model = None
+    unavailable_status = None
+
+    project_id = None
+    activity_type = None
+    start_date = None
+    end_date = None
+    description = None
+
+    def validate_checkout_request(self):
+        # Get the :model:`rolodex.Project` object and verify access
+        project_id = self.input["projectId"]
+        try:
+            self.project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+        if self.project.user_can_edit(self.user_obj):
+            # Get the target object – :model:`shepherd.Domain` or :model:`shepherd.StaticServer``
+            if "domainId" in self.input:
+                object_id = self.input["domainId"]
+            else:
+                object_id = self.input["serverId"]
+            try:
+                self.object = self.model.objects.get(id=object_id)
+            except (Domain.DoesNotExist, StaticServer.DoesNotExist):
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        f"{self.model.__name__} does not exist",
+                        f"{self.model.__name__}DoesNotExist",
+                    ),
+                    status=400,
+                )
+            # Verify the target object is currently marked as available
+            if self.status_model == DomainStatus:
+                self.unavailable_status = DomainStatus.objects.get(
+                    domain_status="Unavailable"
+                )
+                if self.object.domain_status == self.unavailable_status:
+                    return JsonResponse(
+                        utils.generate_hasura_error_payload(
+                            "Domain is unavailable", "DomainUnavailable"
+                        ),
+                        status=400,
+                    )
+            else:
+                self.unavailable_status = ServerStatus.objects.get(
+                    server_status="Unavailable"
+                )
+                if self.object.server_status == self.unavailable_status:
+                    return JsonResponse(
+                        utils.generate_hasura_error_payload(
+                            "Server is unavailable", "ServerUnavailable"
+                        ),
+                        status=400,
+                    )
+            # Get the requested :model:`shepherd.ActivityType` object
+            activity_id = self.input["activityTypeId"]
+            try:
+                self.activity_type = ActivityType.objects.get(id=activity_id)
+            except ActivityType.DoesNotExist:
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        "Activity Type does not exist", "ActivityTypeDoesNotExist"
+                    ),
+                    status=400,
+                )
+            # Validate the provided dates are properly formatted and the start date is before the end date
+            try:
+                self.start_date = parse_date(self.input["startDate"])
+                self.end_date = parse_date(self.input["endDate"])
+            except ParserError:
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        "Invalid date values (must be YYYY-MM-DD)", "InvalidDates"
+                    ),
+                    status=400,
+                )
+            if self.end_date < self.start_date:
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        "End date is before start date", "InvalidDates"
+                    ),
+                    status=400,
+                )
+            # Set the optional inputs (keys will not always exist)
+            if "description" in self.input:
+                self.description = self.input["description"]
+            return None
+        else:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+
+class HasuraCheckoutDeleteView(JwtRequiredMixin, HasuraActionView):
+    """
+    Custom view for deleting checkouts via Hasura Actions. This view handles
+    the deletion so Django can fire the ``pre_delete`` signals the
+    :model:`shepherd.History` and :model:`shepherd.ServerHistory`.
+    """
+
+    required_inputs = [
+        "checkoutId",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        checkout_id = self.input["checkoutId"]
+        try:
+            instance = self.model.objects.get(id=checkout_id)
+        except self.model.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Checkout does not exist", f"{self.model.__name__}DoesNotExist"
+                ),
+                status=400,
+            )
+        if instance.project.user_can_edit(self.user_obj):
+            # Delete the checkout which triggers the ``pre_delete`` signal
+            instance.delete()
+            data = {
+                "result": "success",
+            }
+            return JsonResponse(data, status=self.status)
+
+        return JsonResponse(
+            utils.generate_hasura_error_payload("Unauthorized access", "Unauthorized"),
+            status=401,
+        )
+
+
+class HasuraEventView(View):
+    """Custom view class for Hasura GraphQL Event endpoints."""
+
+    # Default/expected status code for all JSON responses sent to Hasura
+    status = 200
+    # Allowed HTTP methods for Event triggers (Hasura will only use POST)
+    http_method_names = [
+        "post",
+    ]
+    # Initialize default class attributes for event data
+    data = None
+    old_data = None
+    new_data = None
+
+    def setup(self, request, *args, **kwargs):
+        try:
+            self.data = json.loads(request.body)
+            # Ref: https://hasura.io/docs/latest/graphql/core/event-triggers/payload/
+            if "event" in self.data:
+                self.event = self.data["event"]
+                self.old_data = self.data["event"]["data"]["old"]
+                self.new_data = self.data["event"]["data"]["new"]
+        except json.JSONDecodeError:
+            logger.exception(
+                "Failed to decode JSON data from supposed Hasura Event trigger: %s",
+                request.body,
+            )
+        super().setup(request, *args, **kwargs)
+
+    def dispatch(self, request, *args, **kwargs):
+        # Return 400 if no input was found
+        if not self.data:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Missing event data", "InvalidRequestBody"
+                ),
+                status=400,
+            )
+
+        if utils.verify_graphql_request(request.headers):
+            return super().dispatch(request, *args, **kwargs)
+
+        return JsonResponse(
+            utils.generate_hasura_error_payload(
+                "Unauthorized access method", "Unauthorized"
+            ),
+            status=403,
+        )
+
+
+###########################
+# Hasura Action Endpoints #
+###########################
+
+
+class GraphqlTestView(JwtRequiredMixin, HasuraActionView):
+    """Test view for unit testing views that use ``HasuraView`` or ``HasuraActionView``."""
+
+    required_inputs = [
+        "id",
+        "function",
+        "args",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        """Test method for unit testing."""
+        return JsonResponse({"result": "success"}, status=self.status)
+
+
+class GraphqlEventTestView(HasuraEventView):
+    """Test view for unit testing views that use ``HasuraEventView``."""
+
+    def post(self, request, *args, **kwargs):
+        """Test method for unit testing."""
+        return JsonResponse({"result": "success"}, status=self.status)
+
+
+class GraphqlAuthenticationWebhook(HasuraView):
+    """
+    Authentication webhook for Hasura GraphQL.
+
+    If a request is authorized, the webhook must return a 200 response code. Any
+    unauthorized requests must return a 401 response code (handled in ``HasuraView``).
+
+    All requests must return the expected Hasura "session variables" (user ID,
+    username, and user role) in the payload. Unauthorized requests default to
+    using the ``public`` user role with the username ``anonymous`` and user ID
+    of ``-1``.
+
+    Ref: https://hasura.io/docs/latest/graphql/core/auth/authentication/webhook/
+    """
+
+    http_method_names = [
+        "get",
+    ]
+    allow_collab_jwt = True
+
+    def get_collab_claim(self, claim, default=utils.COLLAB_NO_ID):
+        if not self.jwt_payload:
+            return default
+        value = self.jwt_payload.get(claim, default)
+        if value in (None, ""):
+            return default
+        return value
+
+    def get(self, request, *args, **kwargs):
+        # Default response data for an unauthenticated/anonymous request
+        role = "public"
+        user_id = -1
+        username = "anonymous"
+
+        # A non-null user object means the user has been authenticated in ``HasuraView``
+        if self.user_obj:
+            user_id = self.user_obj.id
+            if self.jwt_token_type == utils.COLLAB_JWT_TYPE:
+                role = "collab"
+            else:
+                role = self.user_obj.role
+            username = self.user_obj.username
+        elif self.service_token_obj and self.service_principal_obj:
+            role = "service"
+            username = self.service_principal_obj.name
+
+        # Assemble final authorization data for Hasura
+        data = {
+            "X-Hasura-Role": f"{role}",
+            "X-Hasura-User-Name": f"{username}",
+        }
+        if self.user_obj:
+            data["X-Hasura-User-Id"] = f"{user_id}"
+            if self.jwt_token_type == utils.COLLAB_JWT_TYPE:
+                collab_model = self.get_collab_claim(utils.COLLAB_MODEL_CLAIM, "")
+                collab_object_id = self.get_collab_claim(utils.COLLAB_OBJECT_ID_CLAIM)
+                collab_report_id = self.get_collab_claim(utils.COLLAB_REPORT_ID_CLAIM)
+                collab_finding_id = self.get_collab_claim(utils.COLLAB_FINDING_ID_CLAIM)
+                data.update(
+                    {
+                        "X-Hasura-Collab-Model": f"{collab_model}",
+                        "X-Hasura-Collab-Object-Id": f"{collab_object_id}",
+                        "X-Hasura-Collab-Report-Id": f"{collab_report_id}",
+                        "X-Hasura-Collab-Finding-Id": f"{collab_finding_id}",
+                    }
+                )
+        elif self.service_token_obj and self.service_principal_obj:
+            token_scope = self.service_token_obj.get_hasura_scope()
+            data["X-Hasura-Service-Principal-Id"] = f"{self.service_principal_obj.id}"
+            data["X-Hasura-Service-Token-Id"] = f"{self.service_token_obj.id}"
+            data["X-Hasura-Principal-Type"] = "service"
+            data["X-Hasura-Service-Token-Preset"] = token_scope["preset"]
+            data["X-Hasura-Read-Oplog-Id"] = f"{token_scope['read_oplog_id'] or -1}"
+            data[
+                "X-Hasura-Create-OplogEntry-Oplog-Id"
+            ] = f"{token_scope['create_oplogentry_oplog_id'] or -1}"
+            data[
+                "X-Hasura-Update-OplogEntry-Oplog-Id"
+            ] = f"{token_scope['update_oplogentry_oplog_id'] or -1}"
+            data[
+                "X-Hasura-Delete-OplogEntry-Oplog-Id"
+            ] = f"{token_scope['delete_oplogentry_oplog_id'] or -1}"
+        else:
+            data["X-Hasura-User-Id"] = f"{user_id}"
+
+        return JsonResponse(data, status=200)
+
+
+class GraphqlLoginAction(HasuraActionView):
+    """Authentication and JWT generation logic for the Hasura ``login`` action."""
+
+    required_inputs = [
+        "username",
+        "password",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        # Authenticate the user with Django's back-end
+        user = authenticate(**self.input)
+        # A successful auth will return a ``User`` object
+        if user:
+            # User's required to use MFA or with MFA enabled will not be able to log in via the mutation
+            if (
+                utils.user_has_valid_totp_device(user)
+                or utils.user_has_valid_webauthn_device(user)
+                or user.require_mfa
+            ):
+                self.status = 401
+                data = utils.generate_hasura_error_payload(
+                    "Login and generate a token from your user profile", "MFARequired"
+                )
+            else:
+                _, payload, jwt_token = UserSession.objects.create_token(user)
+                data = {"token": f"{jwt_token}", "expires": payload["exp"]}
+        else:
+            self.status = 401
+            data = utils.generate_hasura_error_payload(
+                "Invalid credentials", "InvalidCredentials"
+            )
+
+        return JsonResponse(data, status=self.status)
+
+
+class GraphqlWhoami(JwtRequiredMixin, HasuraActionView):
+    """Endpoint for retrieving user data with the ``whoami`` action."""
+
+    allow_service_token = True
+
+    def post(self, request, *args, **kwargs):
+        if self.service_token_obj:
+            entry = self.service_token_obj
+            expiration = entry.expiry_date
+            if expiration is None:
+                expiration = "Never"
+            data = {
+                "username": f"{entry.service_principal.name}",
+                "role": "service",
+                "expires": f"{expiration}",
+            }
+        elif self.api_key_obj:
+            entry = self.api_key_obj
+            expiration = entry.expiry_date
+            if expiration is None:
+                expiration = "Never"
+            data = {
+                "username": f"{entry.user.username}",
+                "role": f"{entry.user.role}",
+                "expires": f"{expiration}",
+            }
+        # Otherwise, pull user data from JWT payload
+        else:
+            payload = utils.get_jwt_payload(self.encoded_token)
+            data = {
+                "username": f"{self.user_obj.username}",
+                "role": f"{self.user_obj.role}",
+                "expires": datetime.fromtimestamp(payload["exp"]),
+            }
+        return JsonResponse(data, status=self.status)
+
+
+class GraphqlGetExtraFieldSpecAction(JwtRequiredMixin, HasuraActionView):
+    """Endpoint for retrieving a model's field specification with the ``getFieldSpec`` action."""
+
+    service_token_permission_requirements = (
+        SERVICE_TOKEN_ANY_PROJECT_READ_REQUIREMENT,
+    )
+    required_inputs = [
+        "model",
+    ]
+
+    # Mapping for the two different ways a user might provide a model name
+    # First, the internal model name (used in the database as the `pk`)
+    models = {
+        "project": "rolodex.Project",
+        "domain": "shepherd.Domain",
+        "staticserver": "shepherd.StaticServer",
+        "observation": "reporting.Observation",
+        "finding": "reporting.Finding",
+        "client": "rolodex.Client",
+        "report": "reporting.Report",
+        "oplogentry": "oplog.OplogEntry",
+    }
+    # Second, the model name as it appears in the GraphQL schema
+    internal_models = {
+        "rolodex.project": "rolodex.Project",
+        "shepherd.domain": "shepherd.Domain",
+        "shepherd.staticserver": "shepherd.StaticServer",
+        "reporting.observation": "reporting.Observation",
+        "reporting.finding": "reporting.Finding",
+        "rolodex.client": "rolodex.Client",
+        "reporting.report": "reporting.Report",
+        "oplog.oplogentry": "oplog.OplogEntry",
+    }
+
+    def post(self, request, *args, **kwargs):
+        extra_field_spec = {}
+
+        # Set the model name to all lowercase to remove any chance of user error
+        model = self.input["model"].lower()
+        # Check if the model name is in the mapping, and if not, return an error response
+        if model in self.models:
+            model = self.models[model]
+        elif model in self.internal_models:
+            model = self.internal_models[model]
+        else:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Model does not exist", "ModelDoesNotExist"
+                ),
+                status=400,
+            )
+
+        # Get the extra field model and its extra field specs to return to Hasura
+        extra_field_model = ExtraFieldModel.objects.get(model_internal_name=model)
+        extra_field_spec_set = extra_field_model.extrafieldspec_set.all()
+
+        for spec in extra_field_spec_set:
+            extra_field_spec[spec.internal_name] = {
+                "internalName": spec.internal_name,
+                "displayName": spec.display_name,
+                "type": spec.type,
+                "default": spec.user_default_value,
+            }
+        data = {
+            "extraFieldSpec": extra_field_spec,
+        }
+        return JsonResponse(data, status=self.status)
+
+
+class GraphqlGenerateReport(JwtRequiredMixin, HasuraActionView):
+    """Endpoint for generating a JSON report with the ``generateReport`` action."""
+
+    service_token_permission_requirements = (
+        SERVICE_TOKEN_ANY_PROJECT_READ_REQUIREMENT,
+    )
+    required_inputs = [
+        "id",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        report_id = self.input["id"]
+        try:
+            report = Report.objects.get(id=report_id)
+        except Report.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+        if self.principal_can_read_project(report.project):
+            report_bytes = ExportReportJson(report).run().getvalue()
+            base64_bytes = b64encode(report_bytes)
+            base64_string = base64_bytes.decode("utf-8")
+            data = {
+                "reportData": base64_string,
+                "docxUrl": reverse("reporting:generate_docx", args=[report_id]),
+                "xlsxUrl": reverse("reporting:generate_xlsx", args=[report_id]),
+                "pptxUrl": reverse("reporting:generate_pptx", args=[report_id]),
+            }
+            return JsonResponse(data, status=self.status)
+
+        return JsonResponse(
+            utils.generate_hasura_error_payload("Unauthorized access", "Unauthorized"),
+            status=401,
+        )
+
+
+class GraphqlDownloadEvidence(JwtRequiredMixin, HasuraActionView):
+    """
+    Return a download URL and base64-encoded evidence file for authenticated users with project view access.
+
+    Files larger than ``GHOSTWRITER_MAX_FILE_SIZE`` are rejected with 413.
+
+    **Parameters**
+
+    ``evidenceId``
+        The ID of the evidence to download
+    """
+
+    required_inputs = [
+        "evidenceId",
+    ]
+    service_token_permission_requirements = (
+        SERVICE_TOKEN_ANY_PROJECT_READ_REQUIREMENT,
+    )
+
+    def post(self, request, *args, **kwargs):
+        evidence_id = self.input.get("evidenceId")
+
+        try:
+            evidence = Evidence.objects.get(id=evidence_id)
+        except Evidence.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Evidence not found", "EvidenceNotFound"
+                ),
+                status=HTTPStatus.NOT_FOUND,
+            )
+
+        # Check if user has permission to view the evidence
+        project = evidence.report.project
+        if not self.principal_can_read_project(project):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=HTTPStatus.FORBIDDEN,
+            )
+
+        # Get the configured hostname from GeneralConfiguration
+        config = GeneralConfiguration.get_solo()
+
+        # Determine protocol based on request.is_secure() which respects SECURE_PROXY_SSL_HEADER
+        protocol = "https" if request.is_secure() else "http"
+        base_url = f"{protocol}://{config.hostname}"
+
+        # Generate download URL using configured hostname
+        evidence_path = reverse(
+            "reporting:evidence_download", kwargs={"pk": evidence.id}
+        )
+        download_url = f"{base_url}{evidence_path}"
+
+        try:
+            if evidence.document.size > settings.GHOSTWRITER_MAX_FILE_SIZE:
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        "File is too large to return inline; use the download URL instead",
+                        "FileTooLargeForInline",
+                    ),
+                    status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                )
+            file_data = evidence.document.read()
+            encoded_data = b64encode(file_data).decode("utf-8")
+        except FileNotFoundError:
+            logger.error(
+                "Evidence file not found during read: %s", evidence.document.path
+            )
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Evidence file not found on server", "EvidenceFileNotFound"
+                ),
+                status=HTTPStatus.NOT_FOUND,
+            )
+        except (IOError, OSError) as e:
+            logger.exception("Failed to read evidence file: %s", e)
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Failed to read evidence file", "FileReadError"
+                ),
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+
+        return JsonResponse(
+            {
+                "evidenceId": evidence.id,
+                "filename": evidence.filename,
+                "friendlyName": evidence.friendly_name,
+                "downloadUrl": download_url,
+                "fileBase64": encoded_data,
+            }
+        )
+
+
+class GraphqlCheckoutDomain(HasuraCheckoutView):
+    """Endpoint for reserving a :model:`shepherd.Domain` with the ``checkoutDomain`` action."""
+
+    model = Domain
+    status_model = DomainStatus
+    required_inputs = [
+        "domainId",
+        "projectId",
+        "activityTypeId",
+        "startDate",
+        "endDate",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        # Run the shared checkout validation first.
+        result = self.validate_checkout_request()
+        # If validation fails, return the error response
+        if result:
+            return result
+        # Otherwise, continue with the logic specific to this checkout action
+        expired = self.object.expiration < date.today()
+        if expired:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Domain is expired", "DomainExpired"
+                ),
+                status=400,
+            )
+
+        try:
+            if not self.description:
+                self.description = ""
+            History.objects.create(
+                domain=self.object,
+                activity_type=self.activity_type,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                description=self.description,
+                operator=self.user_obj,
+                project=self.project,
+                client=self.project.client,
+            )
+
+            # Update the domain status and commit it
+            self.object.last_used_by = self.user_obj
+            self.object.domain_status = self.unavailable_status
+            self.object.save()
+            data = {
+                "result": "success",
+            }
+            return JsonResponse(data, status=self.status)
+        except ValidationError:  # pragma: no cover
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Could not create new checkout", "ValidationError"
+                ),
+                status=422,
+            )
+
+
+class GraphqlCheckoutServer(HasuraCheckoutView):
+    """Endpoint for reserving a :model:`shepherd.StaticServer` with the ``checkoutServer`` action."""
+
+    model = StaticServer
+    status_model = ServerStatus
+    required_inputs = [
+        "serverId",
+        "projectId",
+        "activityTypeId",
+        "serverRoleId",
+        "startDate",
+        "endDate",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        # Run the shared checkout validation first.
+        result = self.validate_checkout_request()
+        # If validation fails, return the error response
+        if result:
+            return result
+        role_id = self.input["serverRoleId"]
+        try:
+            server_role = ServerRole.objects.get(id=role_id)
+        except ServerRole.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Server Role Type does not exist", "ServerRoleDoesNotExist"
+                ),
+                status=400,
+            )
+
+        try:
+            if not self.description:
+                self.description = ""
+            ServerHistory.objects.create(
+                server=self.object,
+                activity_type=self.activity_type,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                server_role=server_role,
+                description=self.description,
+                operator=self.user_obj,
+                project=self.project,
+                client=self.project.client,
+            )
+
+            # Update the domain status and commit it
+            self.object.last_used_by = self.user_obj
+            self.object.server_status = self.unavailable_status
+            self.object.save()
+            data = {
+                "result": "success",
+            }
+            return JsonResponse(data, status=self.status)
+        except ValidationError:  # pragma: no cover
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Could not create new checkout", "ValidationError"
+                ),
+                status=422,
+            )
+
+
+class GraphqlDomainCheckoutDelete(HasuraCheckoutDeleteView):
+    """
+    Endpoint for releasing a :model:`shepherd.Domain` when deleting the entry's
+    latest :model:`shepherd.History` entry with the `deleteDomainCheckout` action.
+    """
+
+    model = History
+
+
+class GraphqlServerCheckoutDelete(HasuraCheckoutDeleteView):
+    """
+    Endpoint for releasing a :model:`shepherd.StaticServer` when deleting the entry's
+    latest :model:`shepherd.ServerHistory` entry with the `deleteServerCheckout` action.
+    """
+
+    model = ServerHistory
+
+
+class GraphqlDeleteReportTemplateAction(JwtRequiredMixin, HasuraActionView):
+    """
+    Endpoint for deleting an individual :model:`reporting.ReportTemplate` with the
+    ``delete_reportTemplate`` action. This is preferable to Hasura's standard delete
+    mutation because it ensures Django's ``pre_delete`` and ``post_delete`` signals
+    for filesystem clean-up.
+    """
+
+    required_inputs = [
+        "templateId",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        template_id = self.input["templateId"]
+        try:
+            template = utils.get_templates_list(self.user_obj).get(id=template_id)
+        except ReportTemplate.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Template does not exist", "ReportTemplateDoesNotExist"
+                ),
+                status=400,
+            )
+
+        if not template.user_can_delete(self.user_obj):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+        template.delete()
+        data = {
+            "result": "success",
+        }
+        return JsonResponse(data, status=self.status)
+
+
+class GraphqlAttachFinding(JwtRequiredMixin, HasuraActionView):
+    """
+    Endpoint for attaching a :model:`reporting.Finding` to a :model:`reporting.Report`
+    as a new :model:`reporting.ReportFindingLink`.
+    """
+
+    required_inputs = [
+        "findingId",
+        "reportId",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        finding_id = self.input["findingId"]
+        report_id = self.input["reportId"]
+        try:
+            report = Report.objects.get(id=report_id)
+        except Report.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Report does not exist", "ReportDoesNotExist"
+                ),
+                status=400,
+            )
+        try:
+            finding = Finding.objects.get(id=finding_id)
+        except Finding.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Finding does not exist", "FindingDoesNotExist"
+                ),
+                status=400,
+            )
+
+        if report.user_can_edit(self.user_obj):
+            finding_dict = to_dict(finding, resolve_fk=True)
+            # Remove the tags from the finding dict to add them later with the ``taggit`` API
+            del finding_dict["tags"]
+            del finding_dict["tagged_items"]
+
+            report_link = ReportFindingLink(
+                report=report,
+                assigned_to=self.user_obj,
+                position=get_position(report.id, finding.severity),
+                **finding_dict,
+            )
+            report_link.save()
+            report_link.tags.add(*finding.tags.all())
+            data = {
+                "id": report_link.pk,
+            }
+            return JsonResponse(data, status=self.status)
+
+        return JsonResponse(
+            utils.generate_hasura_error_payload("Unauthorized access", "Unauthorized"),
+            status=401,
+        )
+
+
+class GraphqlUploadEvidenceView(JwtRequiredMixin, HasuraActionView):
+    allow_large_input = True
+
+    def post(self, request):
+        if self.user_obj is None:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+        form = ApiEvidenceForm(
+            self.input,
+            user_obj=self.user_obj,
+            report_queryset=utils.get_reports_list(self.user_obj),
+        )
+        if form.is_valid():
+            instance = form.save()
+            return JsonResponse({"id": instance.pk}, status=201)
+        message = "\n\n".join(
+            f"{k}: " + " ".join(str(err) for err in v) for k, v in form.errors.items()
+        )
+        return JsonResponse(
+            utils.generate_hasura_error_payload(message, "Invalid"), status=401
+        )
+
+
+class GraphqlUploadReportTemplateView(JwtRequiredMixin, HasuraActionView):
+    def post(self, request):
+        if self.user_obj is None or not self.user_obj.is_active:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+        form = ApiReportTemplateForm(
+            self.input,
+            user_obj=self.user_obj,
+        )
+        if form.is_valid():
+            instance = form.save()
+            return JsonResponse({"id": instance.pk}, status=201)
+        message = "\n\n".join(
+            f"{k}: " + " ".join(str(err) for err in v) for k, v in form.errors.items()
+        )
+        return JsonResponse(
+            utils.generate_hasura_error_payload(message, "Invalid"), status=401
+        )
+
+
+class GraphqlLinkOplogEvidence(JwtRequiredMixin, HasuraActionView):
+    """
+    Endpoint for linking an existing :model:`reporting.Evidence` to an
+    :model:`oplog.OplogEntry` via the ``linkOplogEvidence`` action.
+    """
+
+    required_inputs = [
+        "oplogEntryId",
+        "evidenceId",
+    ]
+
+    def post(self, request, *args, **kwargs):
+        oplog_entry_id = self.input["oplogEntryId"]
+        evidence_id = self.input["evidenceId"]
+
+        try:
+            entry = OplogEntry.objects.select_related("oplog_id__project").get(
+                id=oplog_entry_id
+            )
+        except OplogEntry.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Oplog entry does not exist", "OplogEntryDoesNotExist"
+                ),
+                status=400,
+            )
+
+        try:
+            evidence = Evidence.objects.get(id=evidence_id)
+        except Evidence.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Evidence does not exist", "EvidenceDoesNotExist"
+                ),
+                status=400,
+            )
+
+        if not entry.user_can_edit(self.user_obj):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+        if evidence.report.project != entry.oplog_id.project:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Evidence does not belong to the same project", "ProjectMismatch"
+                ),
+                status=400,
+            )
+
+        # Do a `get_or_create` in case the evidence is already linked to the oplog entry
+        link, _ = OplogEntryEvidence.objects.get_or_create(
+            oplog_entry=entry,
+            evidence=evidence,
+        )
+        return JsonResponse({"id": link.pk}, status=self.status)
+
+
+class GraphqlUploadOplogRecording(JwtRequiredMixin, HasuraActionView):
+    """
+    Endpoint for uploading an Asciinema terminal recording for an :model:`oplog.OplogEntry`
+    via the ``uploadOplogRecording`` GraphQL action.
+    """
+
+    allow_large_input = True
+    required_inputs = ["oplogEntryId", "file_base64", "filename"]
+
+    def post(self, request, *args, **kwargs):
+        if self.user_obj is None:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+        form_data = {**self.input, "oplog_entry_id": self.input.get("oplogEntryId")}
+        form = ApiOplogRecordingForm(form_data)
+        if not form.is_valid():
+            logger.info(
+                "Invalid form data for uploading oplog recording: %s", form.errors
+            )
+            message = "\n\n".join(
+                f"{k}: " + " ".join(str(err) for err in v)
+                for k, v in form.errors.items()
+            )
+            return JsonResponse(
+                utils.generate_hasura_error_payload(message, "Invalid"), status=400
+            )
+
+        try:
+            entry = OplogEntry.objects.select_related("oplog_id__project").get(
+                pk=form.cleaned_data["oplog_entry_id"]
+            )
+        except OplogEntry.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Oplog entry does not exist", "OplogEntryDoesNotExist"
+                ),
+                status=400,
+            )
+
+        if not entry.user_can_edit(self.user_obj):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+        # Replace any existing recording
+        try:
+            entry.recording.delete()
+        except OplogEntryRecording.DoesNotExist:
+            logger.debug("Oplog entry %s has no existing recording to replace.", entry.id, exc_info=True)
+
+        # Extract searchable text from the cast file before saving
+        file_bytes = form.cleaned_data["file_base64"]
+        if len(file_bytes) > settings.GHOSTWRITER_MAX_FILE_SIZE:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Recording file is too large", "PayloadTooLarge"
+                ),
+                status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+        if form.cleaned_data["filename"].lower().endswith(".cast.gz"):
+            error_message, error_status = validate_cast_gzip_upload(
+                io.BytesIO(file_bytes)
+            )
+            if error_message:
+                status = (
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+                    if error_status == 413
+                    else HTTPStatus.BAD_REQUEST
+                )
+                code = "PayloadTooLarge" if error_status == 413 else "Invalid"
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(error_message, code),
+                    status=status,
+                )
+        recording_text, text_warning = extract_cast_text(file_bytes)
+
+        recording = OplogEntryRecording(oplog_entry=entry, uploaded_by=self.user_obj)
+        recording.recording_file = ContentFile(
+            file_bytes, name=form.cleaned_data["filename"]
+        )
+        recording.recording_text = recording_text
+        recording.save()
+        response_data = {"id": recording.pk, "oplogEntryId": entry.pk}
+        if text_warning:
+            response_data["warning"] = text_warning
+        return JsonResponse(response_data, status=201)
+
+
+class GraphqlDownloadRecording(JwtRequiredMixin, HasuraActionView):
+    """
+    Return a download URL and base64-encoded recording file for authenticated users with proper permissions.
+
+    **Parameters**
+
+    ``oplogEntryId``
+        The ID of the oplog entry whose recording should be downloaded
+    """
+
+    required_inputs = [
+        "oplogEntryId",
+    ]
+    service_token_permission_requirements = (
+        SERVICE_TOKEN_ANY_PROJECT_READ_REQUIREMENT,
+    )
+
+    def authorize_service_token_action(self) -> bool:
+        return (
+            self.service_token_has_project_read_grant()
+            or self.service_token_has_oplog_read_grant()
+        )
+
+    def service_token_can_read_recording_entry(self, entry: OplogEntry) -> bool:
+        return self.service_token_can_read_project_id(
+            entry.oplog_id.project_id
+        ) or self.service_token_can_read_oplog_id(entry.oplog_id_id)
+
+    def post(self, request, *args, **kwargs):
+        oplog_entry_id = self.input.get("oplogEntryId")
+
+        try:
+            entry = OplogEntry.objects.select_related("oplog_id__project").get(
+                pk=oplog_entry_id
+            )
+        except OplogEntry.DoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Oplog entry not found", "OplogEntryNotFound"
+                ),
+                status=HTTPStatus.NOT_FOUND,
+            )
+
+        if self.service_token_obj is not None:
+            can_read_recording = self.service_token_can_read_recording_entry(entry)
+        else:
+            can_read_recording = self.principal_can_read_project(entry.oplog_id.project)
+
+        if not can_read_recording:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=HTTPStatus.FORBIDDEN,
+            )
+
+        try:
+            recording = entry.recording
+        except ObjectDoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "No recording found for this oplog entry", "RecordingNotFound"
+                ),
+                status=HTTPStatus.NOT_FOUND,
+            )
+
+        if not recording.recording_file:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Recording file is missing", "RecordingFileMissing"
+                ),
+                status=HTTPStatus.NOT_FOUND,
+            )
+
+        config = GeneralConfiguration.get_solo()
+        protocol = "https" if request.is_secure() else "http"
+        base_url = f"{protocol}://{config.hostname}"
+        download_path = reverse(
+            "oplog:oplog_entry_recording_download", kwargs={"pk": recording.pk}
+        )
+        download_url = f"{base_url}{download_path}"
+
+        try:
+            if recording.recording_file.size > settings.GHOSTWRITER_MAX_FILE_SIZE:
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        "File is too large to return inline; use the download URL instead",
+                        "FileTooLargeForInline",
+                    ),
+                    status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                )
+            file_data = recording.recording_file.read()
+            encoded_data = b64encode(file_data).decode("utf-8")
+        except FileNotFoundError:
+            logger.error(
+                "Recording file not found during read: %s",
+                recording.recording_file.path,
+            )
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Recording file not found on server", "RecordingFileNotFound"
+                ),
+                status=HTTPStatus.NOT_FOUND,
+            )
+        except (IOError, OSError) as e:
+            logger.exception("Failed to read recording file: %s", e)
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Failed to read recording file", "FileReadError"
+                ),
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+
+        return JsonResponse(
+            {
+                "recordingId": recording.pk,
+                "oplogEntryId": entry.pk,
+                "filename": recording.filename,
+                "downloadUrl": download_url,
+                "fileBase64": encoded_data,
+            },
+            status=self.status,
+        )
+
+
+class GraphqlGenerateCodenameAction(JwtRequiredMixin, HasuraActionView):
+    """
+    Endpoint for generating a unique codename that can be used for a :model:`rolodex.Project` or other purposes.
+    """
+
+    required_inputs = []
+
+    def post(self, request, *args, **kwargs):
+        codename_verified = False
+        codename = ""
+        while not codename_verified:
+            codename = codenames.codename(uppercase=True)
+            projects = Project.objects.filter(codename__iexact=codename)
+            if not projects:
+                codename_verified = True
+        data = {
+            "codename": codename,
+        }
+        return JsonResponse(data, status=self.status)
+
+
+class GraphqlUserCreate(JwtRequiredMixin, HasuraActionView):
+    """Endpoint for creating a user object with the ``createUser`` action."""
+
+    def post(self, request, *args, **kwargs):
+        if not utils.verify_user_is_privileged(self.user_obj):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unauthorized access", "Unauthorized"
+                ),
+                status=401,
+            )
+
+        try:
+            # Check if the provided role is one of the active roles
+            role = self.input["role"].lower()
+            if role not in ["user", "manager", "admin"]:
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        "Invalid user role", "InvalidUserRole"
+                    ),
+                    status=400,
+                )
+
+            # If the user is not an admin, they cannot create users with higher privileges than user
+            if self.user_obj.role != "admin" and role in ["manager", "admin"]:
+                return JsonResponse(
+                    utils.generate_hasura_error_payload(
+                        "Unauthorized to create user with this role", "Unauthorized"
+                    ),
+                    status=401,
+                )
+
+            timezone = None
+            if "timezone" in self.input:
+                timezone = self.input["timezone"]
+
+                if timezone not in pytz.all_timezones:
+                    return JsonResponse(
+                        utils.generate_hasura_error_payload(
+                            "Invalid timezone", "InvalidTimezone"
+                        ),
+                        status=400,
+                    )
+
+            user_data = {
+                "username": self.input["username"],
+                "email": self.input["email"],
+                "password": self.input["password"],
+                "name": self.input["name"],
+                "role": role,
+            }
+            user = User.objects.create_user(**user_data)
+
+            if timezone:
+                user.timezone = pytz.timezone(timezone)
+
+            if "enableFindingCreate" in self.input:
+                enable_finding_create = self.input["enableFindingCreate"]
+                user.enable_finding_create = enable_finding_create
+
+            if "enableFindingEdit" in self.input:
+                enable_finding_edit = self.input["enableFindingEdit"]
+                user.enable_finding_edit = enable_finding_edit
+
+            if "enableFindingDelete" in self.input:
+                enable_finding_delete = self.input["enableFindingDelete"]
+                user.enable_finding_delete = enable_finding_delete
+
+            if "enableObservationCreate" in self.input:
+                enable_observation_create = self.input["enableObservationCreate"]
+                user.enable_observation_create = enable_observation_create
+
+            if "enableObservationEdit" in self.input:
+                enable_observation_edit = self.input["enableObservationEdit"]
+                user.enable_observation_edit = enable_observation_edit
+
+            if "enableObservationDelete" in self.input:
+                enable_observation_delete = self.input["enableObservationDelete"]
+                user.enable_observation_delete = enable_observation_delete
+
+            if "enableTemplateManagement" in self.input:
+                user.enable_template_management = self.input[
+                    "enableTemplateManagement"
+                ]
+
+            if "requiremfa" in self.input:
+                require_mfa = self.input["requiremfa"]
+                user.require_mfa = require_mfa
+
+            if "phone" in self.input:
+                phone = self.input["phone"]
+                user.phone = phone
+
+            user.save()
+        except IntegrityError:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "A user with that username already exists", "UserAlreadyExists"
+                ),
+                status=400,
+            )
+
+        data = {
+            "id": user.pk,
+            "name": user.name,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "result": "success",
+        }
+        return JsonResponse(data, status=self.status)
+
+
+##########################
+# Hasura Event Endpoints #
+##########################
+
+
+class GraphqlDomainUpdateEvent(HasuraEventView):
+    """Event webhook to fire :model:`shepherd.Domain` signals."""
+
+    def post(self, request, *args, **kwargs):
+        instance = Domain.objects.get(id=self.new_data["id"])
+        instance.expired = False
+        if instance.domain_status.domain_status == "Expired":
+            instance.expired = True
+        instance.save()
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlOplogEntryCreateEvent(HasuraEventView):
+    """Event webhook to fire :model:`oplog.OplogEntry` insert signals."""
+
+    def post(self, request, *args, **kwargs):
+        instance = OplogEntry.objects.get(id=self.new_data["id"])
+        instance.save()
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlOplogEntryUpdateEvent(HasuraEventView):
+    """Event webhook to fire :model:`oplog.OplogEntry` update signals."""
+
+    def post(self, request, *args, **kwargs):
+        instance = OplogEntry.objects.get(id=self.new_data["id"])
+        instance.save()
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlOplogEntryDeleteEvent(HasuraEventView):
+    """Event webhook to fire :model:`oplog.OplogEntry` delete signals."""
+
+    def post(self, request, *args, **kwargs):
+        try:
+            channel_layer = get_channel_layer()
+            json_message = json.dumps({"action": "delete", "data": self.old_data["id"]})
+            async_to_sync(channel_layer.group_send)(
+                str(self.old_data["oplog_id_id"]),
+                {"type": "send_oplog_entry", "text": json_message},
+            )
+        except gaierror:  # pragma: no cover
+            # WebSocket are unavailable (unit testing)
+            pass
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlReportFindingChangeEvent(HasuraEventView):
+    """
+    After inserting or updating a :model:`reporting.ReportFindingLink` entry, adjust the ``position`` values
+    of entries tied to the same :model:`reporting.Report`.
+    """
+
+    def post(self, request, *args, **kwargs):
+        if (
+            self.event["op"] == "UPDATE"
+            and self.old_data["position"] == self.new_data["position"]
+            and self.old_data["severity_id"] == self.new_data["severity_id"]
+        ):
+            return JsonResponse(self.data, status=self.status)
+
+        instance = ReportFindingLink.objects.get(id=self.new_data["id"])
+
+        if self.event["op"] == "INSERT":
+            set_finding_positions(
+                instance,
+                None,
+                None,
+                self.new_data["position"],
+                self.new_data["severity_id"],
+            )
+
+        if self.event["op"] == "UPDATE":
+            set_finding_positions(
+                instance,
+                self.old_data["position"],
+                self.old_data["severity_id"],
+                self.new_data["position"],
+                self.new_data["severity_id"],
+            )
+
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlReportFindingDeleteEvent(HasuraEventView):
+    """
+    After deleting a :model:`reporting.ReportFindingLink` entry, adjust the ``position`` values
+    of entries tied to the same :model:`reporting.Report`.
+    """
+
+    def post(self, request, *args, **kwargs):
+        try:
+            normalize_finding_positions(
+                ReportFindingLink,
+                self.old_data["report_id"],
+                self.old_data["severity_id"],
+            )
+        except Report.DoesNotExist:  # pragma: no cover
+            # Report was deleted, so no need to adjust positions
+            pass
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlProjectContactUpdateEvent(HasuraEventView):
+    """Event webhook to clean :model:`rolodex.ProjectContact` entries."""
+
+    def post(self, request, *args, **kwargs):
+        # Proceed if the `primary` field has changed
+        if self.old_data["primary"] != self.new_data["primary"]:
+            instance = ProjectContact.objects.get(id=self.new_data["id"])
+            contacts = ProjectContact.objects.filter(project=instance.project)
+            for contact in contacts:
+                # If the updated contact is the primary, ensure it's the only marked as primary
+                if contact.id != instance.id and contact.primary and instance.primary:
+                    contact.primary = False
+                    contact.save()
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlProjectObjectiveUpdateEvent(HasuraEventView):
+    """Event webhook to make database updates when :model:`rolodex.ProjectObjective` entries change."""
+
+    def post(self, request, *args, **kwargs):
+        initial_deadline = self.old_data["deadline"]
+        instance = ProjectObjective.objects.get(id=self.new_data["id"])
+
+        subtasks = ProjectSubTask.objects.filter(parent=instance)
+        for task in subtasks:
+            if task.deadline > instance.deadline or task.deadline == initial_deadline:
+                task.deadline = instance.deadline
+                task.save()
+
+        if instance.complete:
+            instance.marked_complete = date.today()
+        else:
+            instance.marked_complete = None
+        instance.save()
+
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlProjectSubTaskUpdateEvent(HasuraEventView):
+    """Event webhook to make database updates when :model:`rolodex.ProjectSubTask` entries change."""
+
+    def post(self, request, *args, **kwargs):
+        instance = ProjectSubTask.objects.select_related("parent").get(
+            id=self.new_data["id"]
+        )
+        if instance.deadline > instance.parent.deadline:
+            instance.deadline = instance.parent.deadline
+            instance.save()
+
+        if instance.complete:
+            instance.marked_complete = date.today()
+        else:
+            instance.marked_complete = None
+        instance.save()
+
+        return JsonResponse(self.data, status=self.status)
+
+
+class GraphqlEvidenceUpdateEvent(HasuraEventView):
+    """
+    Event webhook to delete changed files and update references when an instance of
+    :model:`reporting.Evidence` is updated or deleted.
+    """
+
+    def post(self, request, *args, **kwargs):
+        delete_old_evidence = True
+        if self.event["op"] == "UPDATE":
+            if self.old_data["document"] == self.new_data["document"]:
+                logger.debug("Evidence file did not change, no need to delete old file")
+                delete_old_evidence = False
+        if self.event["op"] == "DELETE":
+            delete_old_evidence = True
+
+        if delete_old_evidence:
+            path = os.path.join(settings.MEDIA_ROOT, self.old_data["document"])
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                    logger.info(
+                        "Deleted old evidence file %s", self.old_data["document"]
+                    )
+                except Exception:  # pragma: no cover
+                    logger.exception(
+                        "Failed deleting old evidence file for %s event: %s",
+                        self.event["op"],
+                        self.old_data["document"],
+                    )
+
+        update_references = True
+        if self.event["op"] == "UPDATE":
+            if self.old_data["friendly_name"] == self.new_data["friendly_name"]:
+                update_references = False
+
+        if update_references:
+            field_allowlist = [
+                "title",
+                "affected_entities",
+                "description",
+                "impact",
+                "mitigation",
+                "replication_steps",
+                "host_detection_techniques",
+                "network_detection_techniques",
+                "references",
+            ]
+
+            # Track friendly name if this is an UPDATE event (new data is not present for DELETE events)
+            friendly = None
+            friendly_ref = None
+            if self.event["op"] == "UPDATE":
+                encoded_name = jinja_string_literal(self.new_data["friendly_name"])
+                friendly = f"{{{{ mk_evidence({encoded_name}) }}}}"
+                friendly_ref = f"{{{{ mk_ref({encoded_name}) }}}}"
+
+            # Track previous friendly name and reference
+            prev_friendly = f"{{{{.{self.old_data['friendly_name']}}}}}"
+            prev_friendly_ref = f"{{{{.ref {self.old_data['friendly_name']}}}}}"
+            encoded_previous_name = jinja_string_literal(
+                self.old_data["friendly_name"]
+            )
+            prev_encoded_friendly = (
+                f"{{{{ mk_evidence({encoded_previous_name}) }}}}"
+            )
+            prev_encoded_friendly_ref = (
+                f"{{{{ mk_ref({encoded_previous_name}) }}}}"
+            )
+
+            logger.info(
+                "Updating content of ReportFindingLink instances with updated name for Evidence %s",
+                self.old_data["id"],
+            )
+
+            update_instances = []
+            if self.old_data["report_id"]:
+                report_instance = Report.objects.get(id=self.old_data["report_id"])
+                update_instances.extend(report_instance.reportfindinglink_set.all())
+
+            for instance in update_instances:
+                try:
+                    for field in instance._meta.get_fields():
+                        if field.name in field_allowlist:
+                            current = getattr(instance, field.name)
+                            if current:
+                                if self.event["op"] == "DELETE":
+                                    new = current.replace(f"<p>{prev_friendly}</p>", "")
+                                    new = new.replace(prev_friendly_ref, "")
+                                    new = new.replace(
+                                        f"<p>{prev_encoded_friendly}</p>", ""
+                                    )
+                                    new = new.replace(prev_encoded_friendly_ref, "")
+                                else:
+                                    new = current.replace(prev_friendly, friendly)
+                                    new = new.replace(prev_friendly_ref, friendly_ref)
+                                    new = new.replace(
+                                        prev_encoded_friendly,
+                                        friendly,
+                                    )
+                                    new = new.replace(
+                                        prev_encoded_friendly_ref,
+                                        friendly_ref,
+                                    )
+                                setattr(instance, field.name, new)
+                    instance.save()
+                except ReportFindingLink.DoesNotExist:
+                    logger.exception(
+                        "Could not find ReportFindingLink for Evidence %s",
+                        self.data["id"],
+                    )
+
+        return JsonResponse(self.data, status=self.status)
+
+
+##################
+# AJAX Functions #
+##################
+
+
+class ApiKeyRevoke(utils.RoleBasedAccessControlMixin, SingleObjectMixin, View):
+    """
+    Revoke an individual :model:`users.APIKey`.
+    """
+
+    model = APIKey
+
+    def test_func(self):
+        return self.get_object().user.id == self.request.user.id
+
+    def handle_no_permission(self):
+        messages.error(self.request, "You do not have permission to access that.")
+        return redirect("home:dashboard")
+
+    def post(self, *args, **kwargs):
+        token = self.get_object()
+        token.revoked = True
+        token.save()
+        data = {"result": "success", "message": "Token successfully revoked!"}
+        logger.info(
+            "Revoked %s %s by request of %s",
+            token.__class__.__name__,
+            token.id,
+            self.request.user,
+        )
+        return JsonResponse(data)
+
+
+class ServiceTokenRevoke(utils.RoleBasedAccessControlMixin, SingleObjectMixin, View):
+    """Revoke an individual :model:`api.ServiceToken`."""
+
+    model = ServiceToken
+
+    def test_func(self):
+        return self.get_object().created_by_id == self.request.user.id
+
+    def handle_no_permission(self):
+        messages.error(self.request, "You do not have permission to access that.")
+        return redirect("home:dashboard")
+
+    def post(self, *args, **kwargs):
+        token = self.get_object()
+        token.revoked = True
+        token.save()
+        data = {"result": "success", "message": "Service token successfully revoked!"}
+        logger.info(
+            "Revoked ServiceToken %s by request of %s", token.id, self.request.user
+        )
+        return JsonResponse(data)
+
+
+class ServiceTokenDetails(utils.RoleBasedAccessControlMixin, SingleObjectMixin, View):
+    """Render access details for an individual :model:`api.ServiceToken`."""
+
+    model = ServiceToken
+    template_name = "users/snippets/service_token_details_modal.html"
+
+    def get_object(self, queryset=None):
+        if not hasattr(self, "_object"):
+            self._object = super().get_object(queryset)
+        return self._object
+
+    def test_func(self):
+        return self.get_object().created_by_id == self.request.user.id
+
+    def handle_no_permission(self):
+        return JsonResponse(
+            utils.generate_hasura_error_payload("Unauthorized access", "Unauthorized"),
+            status=HTTPStatus.FORBIDDEN,
+        )
+
+    def get(self, request, *args, **kwargs):
+        token = self.get_object()
+        try:
+            token.validate_current_grants()
+        except ValidationError as error:
+            ServiceToken.objects.revoke_token(
+                token,
+                reason=f"scope validation failed while rendering details: {error}",
+            )
+            return JsonResponse(
+                {
+                    "result": "error",
+                    "message": "Service token scope is no longer accessible.",
+                    "token_id": token.id,
+                },
+                status=HTTPStatus.GONE,
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "key": token,
+                "client_access": token.get_current_client_read_clients(),
+                "project_access": token.get_current_project_read_projects(),
+                "stale_project_ids": token.get_stale_project_read_ids(),
+                "stale_client_ids": token.get_stale_client_project_scope_ids(),
+                "oplog_access": token.get_oplog_access_details(),
+            },
+        )
+
+
+class APIKeyDetails(utils.RoleBasedAccessControlMixin, SingleObjectMixin, View):
+    """Render access details for an individual :model:`api.APIKey`."""
+
+    model = APIKey
+    template_name = "users/snippets/api_token_details_modal.html"
+
+    def get_object(self, queryset=None):
+        if not hasattr(self, "_object"):
+            self._object = super().get_object(queryset)
+        return self._object
+
+    def test_func(self):
+        return self.get_object().user_id == self.request.user.id
+
+    def handle_no_permission(self):
+        return JsonResponse(
+            utils.generate_hasura_error_payload("Unauthorized access", "Unauthorized"),
+            status=HTTPStatus.FORBIDDEN,
+        )
+
+    def get(self, request, *args, **kwargs):
+        token = self.get_object()
+        project_access = (
+            utils.get_project_list(token.user)
+            .select_related("client", "project_type")
+            .distinct()
+        )
+        return render(
+            request,
+            self.template_name,
+            {
+                "key": token,
+                "project_access": project_access,
+            },
+        )
+
+
+class TokenExpiryUpdateMixin(
+    utils.RoleBasedAccessControlMixin, SingleObjectMixin, View
+):
+    """Update a token expiry date without changing token scope or revocation state."""
+
+    form_class = TokenExpiryForm
+    success_message = "Token expiry date updated."
+    revoked_message = "Revoked tokens cannot be updated."
+    token_message_tag = "api-token"
+
+    def get_success_url(self):
+        return reverse(
+            "users:user_detail", kwargs={"username": self.request.user.username}
+        )
+
+    def handle_no_permission(self):
+        messages.error(self.request, "You do not have permission to access that.")
+        return redirect("home:dashboard")
+
+    def update_token_expiry(self, token, expiry_date):
+        token.expiry_date = expiry_date
+        token.save(update_fields=["expiry_date"])
+        return None
+
+    def rotate_token(self, token):
+        raise NotImplementedError
+
+    def should_rotate_for_expiry_change(self, token, expiry_date):
+        if token.expiry_date is None:
+            return False
+        if expiry_date <= token.expiry_date:
+            return False
+        return GeneralConfiguration.get_solo().token_extend_requires_rotation
+
+    def get_expiry_change_label(self, token, expiry_date):
+        if token.expiry_date is None:
+            return "updated"
+        if expiry_date > token.expiry_date:
+            return "extended"
+        if expiry_date < token.expiry_date:
+            return "shortened"
+        return "unchanged"
+
+    def add_success_messages(self, replacement_token=None):
+        if replacement_token:
+            messages.info(
+                self.request,
+                replacement_token,
+                extra_tags=f"{self.token_message_tag} replacement-token no-toast",
+            )
+        messages.success(
+            self.request,
+            self.success_message,
+            extra_tags="alert-success",
+        )
+
+    def is_ajax_request(self):
+        return self.request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+    def get_expiry_status_class(self, token):
+        if token.has_expired:
+            return "burned js-expired-token"
+        if token.expires_soon:
+            return "warning"
+        return ""
+
+    def get_ajax_success_response(self, token, replacement_token=None):
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": self.success_message,
+                "expiry": date_format(
+                    django_timezone.localtime(token.expiry_date),
+                    "d M Y @ H:i:s e",
+                ),
+                "expiryStatusClass": self.get_expiry_status_class(token),
+                "replacementToken": replacement_token,
+            }
+        )
+
+    def post(self, *args, **kwargs):
+        token = self.get_object()
+        if token.revoked:
+            if self.is_ajax_request():
+                return JsonResponse(
+                    {"result": "error", "message": self.revoked_message},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+            messages.error(
+                self.request, self.revoked_message, extra_tags="alert-danger"
+            )
+            return redirect(self.get_success_url())
+
+        form = self.form_class(self.request.POST)
+        if not form.is_valid():
+            if self.is_ajax_request():
+                return JsonResponse(
+                    {
+                        "result": "error",
+                        "message": "Choose a future expiry date within the configured token lifetime.",
+                    },
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+            messages.error(
+                self.request,
+                "Choose a future expiry date within the configured token lifetime.",
+                extra_tags="alert-danger",
+            )
+            return redirect(self.get_success_url())
+
+        expiry_date = form.cleaned_data["expiry_date"]
+        change_label = self.get_expiry_change_label(token, expiry_date)
+        should_rotate = self.should_rotate_for_expiry_change(token, expiry_date)
+        if should_rotate:
+            replacement_token = self.rotate_token(token)
+            token.expiry_date = expiry_date
+            token.save(update_fields=self.rotated_update_fields + ["expiry_date"])
+        else:
+            replacement_token = self.update_token_expiry(token, expiry_date)
+        logger.info(
+            "%s %s %s expiry date by request of %s%s",
+            token.__class__.__name__,
+            token.id,
+            change_label,
+            self.request.user,
+            " with credential rotation" if should_rotate else "",
+        )
+        if self.is_ajax_request():
+            return self.get_ajax_success_response(token, replacement_token)
+        self.add_success_messages(replacement_token)
+        return redirect(self.get_success_url())
+
+
+class ApiKeyExpiryUpdate(TokenExpiryUpdateMixin):
+    """Update an individual :model:`api.APIKey` expiry date."""
+
+    model = APIKey
+    success_message = "API token expiry date updated."
+    revoked_message = "Revoked API tokens cannot be updated."
+    token_message_tag = "api-token"
+    rotated_update_fields = [
+        "identifier",
+        "token_prefix",
+        "secret_hash",
+        "token",
+        "last_used_at",
+    ]
+
+    def test_func(self):
+        return self.get_object().user_id == self.request.user.id
+
+    def rotate_token(self, token):
+        token.identifier = uuid.uuid4()
+        _, replacement_token = APIKey.objects.generate_token(token)
+        return replacement_token
+
+
+class ServiceTokenExpiryUpdate(TokenExpiryUpdateMixin):
+    """Update an individual :model:`api.ServiceToken` expiry date."""
+
+    model = ServiceToken
+    success_message = "Service token expiry date updated."
+    revoked_message = "Revoked service tokens cannot be updated."
+    token_message_tag = "service-token"
+    rotated_update_fields = [
+        "token_prefix",
+        "secret_hash",
+        "last_used_at",
+    ]
+
+    def test_func(self):
+        return self.get_object().created_by_id == self.request.user.id
+
+    def rotate_token(self, token):
+        _, replacement_token = ServiceToken.objects.generate_token(token)
+        return replacement_token
+
+
+class TokenRegenerateMixin(utils.RoleBasedAccessControlMixin, SingleObjectMixin, View):
+    """Rotate an opaque token credential without changing expiry or scope."""
+
+    success_message = "Token regenerated. Please record your new token value."
+    revoked_message = "Revoked tokens cannot be regenerated."
+    expired_message = "Expired tokens must have expiry extended before regeneration."
+    token_message_tag = "api-token"
+
+    def get_success_url(self):
+        return reverse(
+            "users:user_detail", kwargs={"username": self.request.user.username}
+        )
+
+    def handle_no_permission(self):
+        messages.error(self.request, "You do not have permission to access that.")
+        return redirect("home:dashboard")
+
+    def rotate_token(self, token):
+        raise NotImplementedError
+
+    def is_ajax_request(self):
+        return self.request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+    def get_ajax_error_response(self, message):
+        return JsonResponse(
+            {"result": "error", "message": message},
+            status=HTTPStatus.BAD_REQUEST,
+        )
+
+    def get_ajax_success_response(self, replacement_token):
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": self.success_message,
+                "replacementToken": replacement_token,
+            }
+        )
+
+    def post(self, *args, **kwargs):
+        token = self.get_object()
+        if token.revoked:
+            if self.is_ajax_request():
+                return self.get_ajax_error_response(self.revoked_message)
+            messages.error(
+                self.request, self.revoked_message, extra_tags="alert-danger"
+            )
+            return redirect(self.get_success_url())
+        if token.has_expired:
+            if self.is_ajax_request():
+                return self.get_ajax_error_response(self.expired_message)
+            messages.error(
+                self.request, self.expired_message, extra_tags="alert-danger"
+            )
+            return redirect(self.get_success_url())
+
+        replacement_token = self.rotate_token(token)
+        token.save(update_fields=self.rotated_update_fields)
+        logger.info(
+            "Regenerated %s %s by request of %s",
+            token.__class__.__name__,
+            token.id,
+            self.request.user,
+        )
+        if self.is_ajax_request():
+            return self.get_ajax_success_response(replacement_token)
+        messages.info(
+            self.request,
+            replacement_token,
+            extra_tags=f"{self.token_message_tag} replacement-token no-toast",
+        )
+        messages.success(
+            self.request,
+            self.success_message,
+            extra_tags="alert-success",
+        )
+        return redirect(self.get_success_url())
+
+
+class ApiKeyRegenerate(TokenRegenerateMixin):
+    """Regenerate an individual :model:`api.APIKey` credential."""
+
+    model = APIKey
+    success_message = "API token regenerated. Please record your new token value."
+    revoked_message = "Revoked API tokens cannot be regenerated."
+    token_message_tag = "api-token"
+    rotated_update_fields = [
+        "identifier",
+        "token_prefix",
+        "secret_hash",
+        "token",
+        "last_used_at",
+    ]
+
+    def test_func(self):
+        return self.get_object().user_id == self.request.user.id
+
+    def rotate_token(self, token):
+        token.identifier = uuid.uuid4()
+        _, replacement_token = APIKey.objects.generate_token(token)
+        return replacement_token
+
+
+class ServiceTokenRegenerate(TokenRegenerateMixin):
+    """Regenerate an individual :model:`api.ServiceToken` credential."""
+
+    model = ServiceToken
+    success_message = "Service token regenerated. Please record your new token value."
+    revoked_message = "Revoked service tokens cannot be regenerated."
+    token_message_tag = "service-token"
+    rotated_update_fields = [
+        "token_prefix",
+        "secret_hash",
+        "last_used_at",
+    ]
+
+    def test_func(self):
+        return self.get_object().created_by_id == self.request.user.id
+
+    def rotate_token(self, token):
+        _, replacement_token = ServiceToken.objects.generate_token(token)
+        return replacement_token
+
+
+##################
+# API Token Mgmt #
+##################
+
+
+class ApiKeyCreate(utils.RoleBasedAccessControlMixin, FormView):
+    """
+    Create an individual :model:`api.APIKey`.
+
+    **Template**
+
+    :template:`api/token_form.html`
+    """
+
+    form_class = ApiKeyForm
+    template_name = "token_form.html"
+
+    def get_success_url(self):
+        messages.success(
+            self.request,
+            "Token successfully saved.",
+            extra_tags="alert-success",
+        )
+        return reverse("users:user_detail", kwargs={"username": self.request.user})
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["cancel_link"] = reverse(
+            "users:user_detail", kwargs={"username": self.request.user.username}
+        )
+        return ctx
+
+    def form_valid(self, form):
+        name = form.cleaned_data["name"]
+        expiry = form.cleaned_data["expiry_date"]
+        try:
+            _, token = APIKey.objects.create_token(
+                name=name, user=self.request.user, expiry_date=expiry
+            )
+            logger.info("Created API token by request of %s", self.request.user)
+            messages.info(
+                self.request,
+                token,
+                extra_tags="api-token no-toast",
+            )
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to create new API key")
+            messages.error(
+                self.request,
+                "Could not generate a token for you – contact your admin!",
+                extra_tags="alert-danger",
+            )
+        return super().form_valid(form)
+
+
+class ServiceTokenCreate(utils.RoleBasedAccessControlMixin, FormView):
+    """Create a scoped :model:`api.ServiceToken`."""
+
+    form_class = ServiceTokenForm
+    template_name = "service_token_form.html"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
+    def get_success_url(self):
+        messages.success(
+            self.request,
+            "Service token successfully saved.",
+            extra_tags="alert-success",
+        )
+        return reverse("users:user_detail", kwargs={"username": self.request.user})
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["cancel_link"] = reverse(
+            "users:user_detail", kwargs={"username": self.request.user.username}
+        )
+        return ctx
+
+    def form_valid(self, form):
+        token_preset = form.cleaned_data["token_preset"]
+        name = form.cleaned_data["name"]
+        expiry = form.cleaned_data["expiry_date"]
+        oplog = form.cleaned_data["oplog"]
+        project_scope = form.cleaned_data["project_scope"]
+        clients = form.cleaned_data["clients"]
+        projects = form.cleaned_data["projects"]
+        service_principal = form.cleaned_data["service_principal"]
+        new_service_principal_name = form.cleaned_data["new_service_principal_name"]
+        try:
+            principal = service_principal
+            if principal is None:
+                principal = ServicePrincipal.objects.create(
+                    name=new_service_principal_name,
+                    service_type=ServicePrincipal.ServiceType.INTEGRATION,
+                    created_by=self.request.user,
+                )
+            permissions = ServiceToken.build_permissions_for_preset(
+                token_preset,
+                oplog_id=oplog.id if oplog else None,
+                project_ids=projects.values_list("id", flat=True)
+                if project_scope == ServiceTokenProjectScope.SELECTED
+                and projects is not None
+                else None,
+                client_ids=clients.values_list("id", flat=True)
+                if project_scope == ServiceTokenProjectScope.SELECTED_CLIENTS
+                and clients is not None
+                else None,
+                all_accessible_projects=project_scope
+                == ServiceTokenProjectScope.ALL_ACCESSIBLE,
+            )
+            _, token = ServiceToken.objects.create_token(
+                name=name,
+                created_by=self.request.user,
+                service_principal=principal,
+                expiry_date=expiry,
+                permissions=permissions,
+            )
+            logger.info(
+                "Created service token for service principal %s by request of %s",
+                principal.pk,
+                self.request.user,
+            )
+            messages.info(
+                self.request,
+                token,
+                extra_tags="service-token no-toast",
+            )
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to create new service token")
+            messages.error(
+                self.request,
+                "Could not generate a service token for you – contact your admin!",
+                extra_tags="alert-danger",
+            )
+        return super().form_valid(form)
+
+
+class CollabTokenRefresh(View):
+    """Renew one document-scoped collaboration JWT using the Django session."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_authenticated or not request.user.is_active:
+            return JsonResponse({"error": "Authentication required"}, status=401)
+
+        try:
+            data = json.loads(request.body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return JsonResponse({"error": "Invalid request body"}, status=400)
+
+        if not isinstance(data, dict) or not isinstance(data.get("model"), str):
+            return JsonResponse({"error": "Invalid request body"}, status=400)
+
+        model_name = data["model"].lower()
+        cls = COLLAB_EDIT_MODELS.get(model_name)
+        raw_object_id = data.get("id")
+        if isinstance(raw_object_id, bool):
+            return JsonResponse({"error": "Invalid request body"}, status=400)
+        try:
+            object_id = int(raw_object_id)
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "Invalid request body"}, status=400)
+
+        if cls is None or object_id < 1:
+            return JsonResponse({"error": "Invalid request body"}, status=400)
+
+        try:
+            obj = cls.objects.get(id=object_id)
+        except ObjectDoesNotExist:
+            return JsonResponse({"error": "Not found"}, status=404)
+
+        if not obj.user_can_edit(request.user):
+            return JsonResponse({"error": "Permission denied"}, status=403)
+
+        expires_at, token = utils.generate_collab_jwt(
+            request.user,
+            model_name,
+            obj,
+        )
+        response = JsonResponse({"token": token, "expiresAt": expires_at})
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class CheckEditPermissions(JwtRequiredMixin, HasuraActionView):
+    """
+    Checks if a document-scoped JWT authorizes edit access to an object.
+
+    Used by the collab editing server for authentication. Not used by Hasura.
+    """
+
+    allow_login_jwt = False
+    allow_collab_jwt = True
+    required_inputs = ["model", "id"]
+    available_models = COLLAB_EDIT_MODELS
+
+    def post_authentication(self, request, *args, **kwargs):
+        response = super().post_authentication(request, *args, **kwargs)
+        if response is not None:
+            return response
+        if self.jwt_token_type != utils.COLLAB_JWT_TYPE:
+            return self.invalid_token_response()
+        return None
+
+    def get_collab_object_scope_id(self) -> int:
+        if not self.jwt_payload:
+            return utils.COLLAB_NO_ID
+        try:
+            return int(
+                self.jwt_payload.get(
+                    utils.COLLAB_OBJECT_ID_CLAIM,
+                    utils.COLLAB_NO_ID,
+                )
+            )
+        except (TypeError, ValueError):
+            return utils.COLLAB_NO_ID
+
+    def collab_scope_matches(self, obj) -> bool:
+        if self.jwt_token_type != utils.COLLAB_JWT_TYPE:
+            return True
+        if not self.jwt_payload:
+            return False
+        return (
+            self.jwt_payload.get(utils.COLLAB_MODEL_CLAIM) == self.input["model"]
+            and self.get_collab_object_scope_id() == obj.pk
+        )
+
+    def post(self, request):
+        cls = self.available_models.get(self.input["model"])
+        if cls is None:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unrecognized model type", "InvalidRequestBody"
+                ),
+                status=401,
+            )
+
+        try:
+            obj = cls.objects.get(id=self.input["id"])
+        except ObjectDoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload("Not Found", "ModelDoesNotExist"),
+                status=404,
+            )
+
+        if not self.collab_scope_matches(obj):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Collab token is not scoped to this object", "Unauthorized"
+                ),
+                status=403,
+            )
+
+        if not obj.user_can_edit(self.user_obj):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Not allowed to edit", "Unauthorized"
+                ),
+                status=403,
+            )
+        expires_at = self.jwt_payload.get("exp")
+        if not isinstance(expires_at, (int, float)):
+            return self.invalid_token_response()
+
+        return JsonResponse(
+            {
+                "username": self.user_obj.username,
+                "userId": self.user_obj.id,
+                "expiresAt": int(expires_at),
+            },
+            status=200,
+        )
+
+
+class ServiceTokenTagAccessMixin:
+    service_token_tag_action = ServiceTokenPermission.Action.READ
+    service_token_global_library_models = {"finding", "observation"}
+
+    def get_service_token_tag_model(self) -> str | None:
+        if hasattr(self, "kwargs"):
+            model = self.kwargs.get("model")
+            if model:
+                return model
+        if isinstance(self.input, dict):
+            model = self.input.get("model")
+            if model:
+                return model.lower()
+        return None
+
+    def get_service_token_permission_requirements(
+        self,
+    ) -> tuple[dict[str, object], ...]:
+        if self.get_service_token_tag_model() == "oplog_entry":
+            return (
+                {
+                    "resource_type": ServiceTokenPermission.ResourceType.OPLOG,
+                    "action": self.service_token_tag_action,
+                    "scope": SERVICE_TOKEN_SCOPE_ANY,
+                },
+            )
+        if self.service_token_tag_action == ServiceTokenPermission.Action.READ:
+            return (SERVICE_TOKEN_ANY_PROJECT_READ_REQUIREMENT,)
+        return ()
+
+    def authorize_service_token_action(self) -> bool:
+        if (
+            self.get_service_token_tag_model() == "oplog_entry"
+            and self.service_token_tag_action == ServiceTokenPermission.Action.READ
+        ):
+            return (
+                self.service_token_has_project_read_grant()
+                or super().authorize_service_token_action()
+            )
+        return super().authorize_service_token_action()
+
+    def get_service_token_tag_queryset(self, model: str, cls):
+        if self.service_token_tag_action == ServiceTokenPermission.Action.UPDATE:
+            if model == "oplog_entry" and self.service_token_obj is not None:
+                oplog_ids = self.service_token_obj.permissions.filter(
+                    resource_type=ServiceTokenPermission.ResourceType.OPLOG,
+                    action=ServiceTokenPermission.Action.UPDATE,
+                ).values("resource_id")
+                return cls.objects.filter(oplog_id_id__in=oplog_ids)
+            return cls.objects.none()
+
+        if model in self.service_token_global_library_models:
+            if self.service_token_has_project_read_grant():
+                return cls.objects.all()
+            return cls.objects.none()
+
+        project_ids = self.service_token_project_read_ids()
+        if model == "project":
+            return cls.objects.filter(id__in=project_ids)
+        if model == "report":
+            return cls.objects.filter(project_id__in=project_ids)
+        if model in {"report_finding_link", "report_observation_link"}:
+            return cls.objects.filter(report__project_id__in=project_ids)
+        if model == "oplog_entry":
+            oplog_ids = self.service_token_oplog_read_ids()
+            tag_scope = Q()
+            if project_ids:
+                tag_scope |= Q(oplog_id__project_id__in=project_ids)
+            if oplog_ids:
+                tag_scope |= Q(oplog_id_id__in=oplog_ids)
+            if tag_scope:
+                return cls.objects.filter(tag_scope)
+            return cls.objects.none()
+        return cls.objects.none()
+
+
+class CollabTokenScopeMixin:
+    """Restrict collaboration JWTs to the document they were issued for."""
+
+    allow_collab_jwt = True
+
+    def post_authentication(self, request, *args, **kwargs):
+        response = super().post_authentication(request, *args, **kwargs)
+        if response is not None or self.jwt_token_type != utils.COLLAB_JWT_TYPE:
+            return response
+
+        expected_model = self.jwt_payload.get(utils.COLLAB_MODEL_CLAIM)
+        expected_object_id = self.jwt_payload.get(utils.COLLAB_OBJECT_ID_CLAIM)
+        requested_model = str(self.input.get("model", "")).lower()
+        requested_object_id = self.input.get("id")
+        if requested_model == expected_model and str(requested_object_id) == str(
+            expected_object_id
+        ):
+            return None
+
+        logger.warning(
+            "Rejected collab token for %s %s; token is scoped to %s %s",
+            requested_model,
+            requested_object_id,
+            expected_model,
+            expected_object_id,
+        )
+        return JsonResponse(
+            utils.generate_hasura_error_payload(
+                "Collaboration token is not authorized for this object", "Unauthorized"
+            ),
+            status=HTTPStatus.FORBIDDEN,
+        )
+
+
+class GetTags(
+    CollabTokenScopeMixin,
+    ServiceTokenTagAccessMixin,
+    JwtRequiredMixin,
+    HasuraActionView,
+):
+    required_inputs = ["model", "id"]
+    available_models = {
+        # Models here need to have a `tags` field, and optionally a `user_can_view(user)` method.
+        "observation": Observation,
+        "report_observation_link": ReportObservationLink,
+        "finding": Finding,
+        "report_finding_link": ReportFindingLink,
+        "oplog_entry": OplogEntry,
+        "report": Report,
+        "project": Project,
+    }
+
+    def post(self, request: HttpRequest):
+        model = self.input["model"].lower()
+        cls = self.available_models.get(model)
+        if cls is None:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unrecognized model type", "InvalidRequestBody"
+                ),
+                status=401,
+            )
+
+        objs = cls.objects.all()
+        if self.service_token_obj is not None:
+            objs = self.get_service_token_tag_queryset(model, cls)
+
+        try:
+            obj = objs.get(id=self.input["id"])
+        except ObjectDoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload("Not Found", "ModelDoesNotExist"),
+                status=404,
+            )
+
+        if (
+            self.service_token_obj is None
+            and hasattr(obj, "user_can_view")
+            and not obj.user_can_view(self.user_obj)
+        ):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Not allowed to view", "Unauthorized"
+                ),
+                status=403,
+            )
+
+        return JsonResponse({"tags": list(obj.tags.names())})
+
+
+class SetTags(
+    CollabTokenScopeMixin,
+    ServiceTokenTagAccessMixin,
+    JwtRequiredMixin,
+    HasuraActionView,
+):
+    service_token_tag_action = ServiceTokenPermission.Action.UPDATE
+    required_inputs = ["model", "id", "tags"]
+    available_models = {
+        # Models here need to have a `tags` field and a `user_can_edit(user)` method.
+        "observation": Observation,
+        "report_observation_link": ReportObservationLink,
+        "finding": Finding,
+        "report_finding_link": ReportFindingLink,
+        "oplog_entry": OplogEntry,
+        "report": Report,
+        "project": Project,
+    }
+
+    def post(self, request: HttpRequest):
+        model = self.input["model"].lower()
+        cls = self.available_models.get(model)
+        if cls is None:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unrecognized model type", "InvalidRequestBody"
+                ),
+                status=401,
+            )
+
+        objs = cls.objects.all()
+        if self.service_token_obj is not None:
+            objs = self.get_service_token_tag_queryset(model, cls)
+
+        try:
+            obj = objs.get(id=self.input["id"])
+        except ObjectDoesNotExist:
+            return JsonResponse(
+                utils.generate_hasura_error_payload("Not Found", "ModelDoesNotExist"),
+                status=404,
+            )
+
+        if (
+            self.service_token_obj is None
+            and not obj.user_can_edit(self.user_obj)
+        ):
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Not allowed to edit", "Unauthorized"
+                ),
+                status=403,
+            )
+
+        obj.tags.set(self.input["tags"])
+        return JsonResponse({"tags": self.input["tags"]})
+
+
+class ObjectsByTag(ServiceTokenTagAccessMixin, JwtRequiredMixin, HasuraActionView):
+    required_inputs = ["tag"]
+    available_models = {
+        # Models here need to have a `tags` field and a `user_viewable(user)` class method
+        "observation": Observation,
+        "report_observation_link": ReportObservationLink,
+        "finding": Finding,
+        "report_finding_link": ReportFindingLink,
+        "oplog_entry": OplogEntry,
+        "report": Report,
+        "project": Project,
+    }
+
+    def post(self, request: HttpRequest, model: str):
+        cls = self.available_models.get(model)
+        if cls is None:
+            return JsonResponse(
+                utils.generate_hasura_error_payload(
+                    "Unrecognized model type", "InvalidRequestBody"
+                ),
+                status=401,
+            )
+
+        if self.service_token_obj is not None:
+            objs = self.get_service_token_tag_queryset(model, cls)
+        else:
+            objs = cls.user_viewable(self.user_obj)
+        objs = objs.filter(tags__name=self.input["tag"])
+        return JsonResponse([{"id": obj.pk} for obj in objs], safe=False)
+
+
+######################
+# Passive Voice API  #
+######################
+
+
+def _validate_passive_voice_request(request):
+    """
+    Validate the passive voice detection request.
+
+    Returns:
+        tuple: (text, None) on success, or (None, JsonResponse) on validation error.
+    """
+    if not request.user.is_authenticated:
+        return None, JsonResponse(
+            {"error": "Authentication required"}, status=HTTPStatus.UNAUTHORIZED
+        )
+
+    if request.method != "POST":
+        return None, JsonResponse(
+            {"error": "Only POST method is allowed"},
+            status=HTTPStatus.METHOD_NOT_ALLOWED,
+        )
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return None, JsonResponse(
+            {"error": "Invalid JSON in request body"}, status=HTTPStatus.BAD_REQUEST
+        )
+
+    text = data.get("text", "")
+
+    if not isinstance(text, str) or not text.strip():
+        return None, JsonResponse(
+            {"error": "Text field is required"}, status=HTTPStatus.BAD_REQUEST
+        )
+
+    max_length = settings.SPACY_MAX_TEXT_LENGTH
+    if len(text) > max_length:
+        return None, JsonResponse(
+            {"error": f"Text exceeds maximum length of {max_length} characters"},
+            status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+        )
+
+    return text, None
+
+
+def detect_passive_voice(request):
+    """
+    Detect passive voice sentences in provided text using spaCy NLP.
+
+    POST /api/v1/passive-voice/detect
+    Authentication: Required (Session or API Key)
+
+    Request body:
+        {
+            "text": "The report was written by the team."
+        }
+
+    Response (200 OK):
+        {
+            "ranges": [[0, 37]],
+            "count": 1
+        }
+
+    Response (401 Unauthorized):
+        {
+            "error": "Authentication required"
+        }
+
+    Response (400 Bad Request):
+        {
+            "error": "Text field is required"
+        }
+
+    Response (413 Request Entity Too Large):
+        {
+            "error": "Text exceeds maximum length of 100000 characters"
+        }
+
+    Response (500 Internal Server Error):
+        {
+            "error": "Failed to analyze text",
+            "detail": "..."
+        }
+    """
+    text, error_response = _validate_passive_voice_request(request)
+    if error_response:
+        return error_response
+
+    try:
+        detector = get_detector()
+        ranges = detector.detect_passive_sentences(text)
+
+        return JsonResponse(
+            {
+                "ranges": ranges,
+                "count": len(ranges),
+            }
+        )
+
+    except (OSError, RuntimeError, ValueError):
+        logger.exception("Passive voice detection failed")
+        return JsonResponse(
+            {"error": "Failed to analyze text"},
+            status=HTTPStatus.INTERNAL_SERVER_ERROR,
+        )

@@ -1,0 +1,29 @@
+{% extends "base_generic.html" %}
+
+{% block pagetitle %}Delete Note{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'knowledge_base:index' %}">Knowledge Base</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Delete Note</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="row">
+    <div class="col-6">
+      <div class="alert alert-danger" role="alert">
+        <h4 class="alert-heading">Delete Note</h4>
+        <p>Are you sure you want to delete <strong>{{ object.title }}</strong>? This cannot be undone.</p>
+        <form method="post">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger icon trash-icon">Yes, Delete</button>
+          <a class="btn btn-secondary" href="{{ object.get_absolute_url }}">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}

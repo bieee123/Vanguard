@@ -1,0 +1,285 @@
+"""This contains customizations for displaying the Rolodex application models in the admin panel."""
+
+# Django Imports
+from django.contrib import admin
+from django.core.exceptions import ValidationError
+from django.forms import ModelForm
+from django.forms.models import construct_instance
+
+# Ghostwriter Libraries
+from ghostwriter.rolodex.models import (
+    Client,
+    ClientContact,
+    ClientInvite,
+    ClientNote,
+    Deconfliction,
+    DeconflictionStatus,
+    ObjectivePriority,
+    ObjectiveStatus,
+    Project,
+    ProjectAssignment,
+    ProjectContact,
+    ProjectInvite,
+    ProjectNote,
+    ProjectObjective,
+    ProjectRole,
+    ProjectScope,
+    ProjectSubTask,
+    ProjectTarget,
+    ProjectType,
+    WhiteCard,
+)
+
+
+class ProjectRoleAdminForm(ModelForm):
+    """Allow position edits to flow through model reorder logic before uniqueness is enforced."""
+
+    class Meta:
+        model = ProjectRole
+        fields = "__all__"
+
+    def _post_clean(self):
+        exclude = self._get_validation_exclusions()
+
+        try:
+            self.instance = construct_instance(self, self.instance, self._meta.fields, self._meta.exclude)
+        except ValidationError as e:
+            self._update_errors(e)
+
+        try:
+            self.instance.full_clean(
+                exclude=exclude,
+                validate_unique=False,
+                validate_constraints=False,
+            )
+        except ValidationError as e:
+            self._update_errors(e)
+
+        if self._validate_unique:
+            self.validate_unique()
+
+
+@admin.register(Client)
+class ClientAdmin(admin.ModelAdmin):
+    list_display = ("name", "short_name", "codename", "tag_list")
+    list_filter = ("name", "tags")
+    list_display_links = ("name", "short_name", "codename")
+    fieldsets = (
+        (
+            "General Information",
+            {"fields": ("name", "short_name", "codename", "timezone", "address")},
+        ),
+        ("Misc", {"fields": ("description",)}),
+        ("Extras", {"fields": ("extra_fields",)}),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("tags")
+
+    def tag_list(self, obj):
+        return ", ".join(o.name for o in obj.tags.all())
+
+
+@admin.register(ClientContact)
+class ClientContactAdmin(admin.ModelAdmin):
+    list_display = ("name", "job_title", "client")
+    list_filter = ("client",)
+    list_display_links = ("name", "job_title", "client")
+    fieldsets = (
+        (
+            "Contact Information",
+            {"fields": ("client", "name", "job_title", "email", "phone", "timezone")},
+        ),
+        ("Misc", {"fields": ("description",)}),
+    )
+
+
+@admin.register(Project)
+class ProjectAdmin(admin.ModelAdmin):
+    list_display = (
+        "client",
+        "codename",
+        "project_type",
+        "start_date",
+        "end_date",
+        "complete",
+        "tag_list",
+    )
+    list_filter = ("client", "complete", "tags")
+    list_display_links = ("client", "codename")
+    fieldsets = (
+        ("General Information", {"fields": ("client", "codename", "project_type")}),
+        (
+            "Execution Dates and Status",
+            {
+                "fields": (
+                    "start_date",
+                    "end_date",
+                    "start_time",
+                    "end_time",
+                    "timezone",
+                    "complete",
+                )
+            },
+        ),
+        ("Misc", {"fields": ("slack_channel", "description")}),
+        ("Extras", {"fields": ("extra_fields",)}),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("tags")
+
+    def tag_list(self, obj):
+        return ", ".join(o.name for o in obj.tags.all())
+
+
+@admin.register(ProjectType)
+class ProjectTypeAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(ProjectAssignment)
+class ProjectAssignmentAdmin(admin.ModelAdmin):
+    list_display = ("operator", "role", "project", "start_date", "end_date")
+    list_filter = ("operator", "project", "role")
+    list_display_links = ("operator", "project")
+    fieldsets = (
+        ("Operator Information", {"fields": ("operator", "role", "project")}),
+        (
+            "Assignment Dates",
+            {"fields": ("start_date", "end_date")},
+        ),
+        ("Misc", {"fields": ("description",)}),
+    )
+
+
+@admin.register(ProjectRole)
+class ProjectRoleAdmin(admin.ModelAdmin):
+    form = ProjectRoleAdminForm
+    list_display = ("project_role", "position")
+    list_display_links = ("project_role",)
+    ordering = ("position", "project_role")
+
+
+@admin.register(ClientNote)
+class ClientNoteAdmin(admin.ModelAdmin):
+    list_display = ("operator", "timestamp", "client")
+    list_filter = ("client",)
+    list_display_links = ("operator", "timestamp", "client")
+
+
+@admin.register(ProjectNote)
+class ProjectNoteAdmin(admin.ModelAdmin):
+    list_display = ("operator", "timestamp", "project")
+    list_filter = ("project",)
+    list_display_links = ("operator", "timestamp", "project")
+
+
+@admin.register(ObjectiveStatus)
+class ObjectiveStatusAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(ProjectObjective)
+class ProjectObjectiveAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(ProjectTarget)
+class ProjectTargetAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(ProjectScope)
+class ProjectScopeAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(ProjectSubTask)
+class ProjectSubTaskAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(ObjectivePriority)
+class ObjectivePriorityAdmin(admin.ModelAdmin):
+    list_display = ("priority", "weight")
+    list_display_links = ("priority",)
+
+
+@admin.register(ProjectInvite)
+class ProjectInviteAdmin(admin.ModelAdmin):
+    list_display = ("project", "user")
+    list_filter = ("project", "user")
+    list_display_links = ("project", "user")
+    fieldsets = (
+        ("Invitation", {"fields": ("user", "project")}),
+        ("Misc", {"fields": ("comment",)}),
+    )
+
+
+@admin.register(ClientInvite)
+class ClientInviteAdmin(admin.ModelAdmin):
+    list_display = ("client", "user")
+    list_filter = ("client", "user")
+    list_display_links = ("client", "user")
+    fieldsets = (
+        ("Invitation", {"fields": ("user", "client")}),
+        ("Misc", {"fields": ("comment",)}),
+    )
+
+
+@admin.register(DeconflictionStatus)
+class DeconflictionStatusAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(Deconfliction)
+class DeconflictionAdmin(admin.ModelAdmin):
+    list_display = ("project", "status", "title")
+    list_filter = ("project", "status")
+    list_display_links = ("project", "status", "title")
+    fieldsets = (
+        (
+            "Deconfliction",
+            {"fields": ("status", "title", "description", "alert_source", "project")},
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": (
+                    "report_timestamp",
+                    "alert_timestamp",
+                    "response_timestamp",
+                )
+            },
+        ),
+    )
+
+
+@admin.register(WhiteCard)
+class WhiteCardAdmin(admin.ModelAdmin):
+    list_display = ("project", "title")
+    list_filter = [
+        "project__complete",
+    ]
+    list_display_links = ("project", "title")
+    fieldsets = (
+        (
+            "White Card",
+            {"fields": ("issued", "title", "description")},
+        ),
+    )
+
+
+@admin.register(ProjectContact)
+class ProjectContactAdmin(admin.ModelAdmin):
+    list_display = ("name", "job_title", "project", "primary")
+    list_filter = ("project",)
+    list_display_links = ("name", "job_title", "project")
+    fieldsets = (
+        (
+            "Contact Information",
+            {"fields": ("project", "name", "job_title", "email", "phone", "timezone", "primary")},
+        ),
+        ("Misc", {"fields": ("description",)}),
+    )

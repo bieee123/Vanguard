@@ -1,0 +1,59 @@
+
+@import "custom_bootstrap_vars";
+@import "bootstrap";
+
+
+
+
+// project specific CSS goes here
+
+////////////////////////////////
+		//Variables//
+////////////////////////////////
+
+// Alert colors
+
+$white: #fff;
+$mint-green: #d6e9c6;
+$black: #000;
+$pink: #f2dede;
+$dark-pink: #eed3d7;
+$red: #b94a48;
+
+////////////////////////////////
+		//Alerts//
+////////////////////////////////
+
+// bootstrap alert CSS, translated to the django-standard levels of
+// debug, info, success, warning, error
+
+.alert-debug {
+  background-color: $white;
+  border-color: $mint-green;
+  color: $black;
+}
+
+.alert-error {
+  background-color: $pink;
+  border-color: $dark-pink;
+  color: $red;
+}
+
+@keyframes gw-formset-new-highlight {
+  0% {
+    border-color: rgba(80, 176, 113, 0.95);
+    box-shadow: 0 0 0 3px rgba(80, 176, 113, 0.35);
+  }
+
+  100% {
+    border-color: inherit;
+    box-shadow: 0 0 0 0 rgba(80, 176, 113, 0);
+  }
+}
+
+.formset-new-highlight .form-control,
+.formset-new-highlight .custom-select,
+.formset-new-highlight .select2-selection,
+.formset-new-highlight .tox.tox-tinymce {
+  animation: gw-formset-new-highlight 1800ms ease-out;
+}

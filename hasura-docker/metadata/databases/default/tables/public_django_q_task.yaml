@@ -1,0 +1,26 @@
+table:
+  name: django_q_task
+  schema: public
+configuration:
+  column_config: {}
+  custom_column_names: {}
+  custom_name: task
+  custom_root_fields: {}
+select_permissions:
+  - role: manager
+    permission:
+      columns:
+        - args
+        - attempt_count
+        - cluster
+        - func
+        - group
+        - hook
+        - id
+        - kwargs
+        - name
+        - result
+        - started
+        - stopped
+        - success
+      filter: {}
