@@ -115,3 +115,16 @@ class KnowledgeBaseViewTests(TestCase):
         self.client.login(username=self.user.username, password=PASSWORD)
         response = self.client.get(reverse("knowledge_base:note_create"))
         self.assertEqual(response.status_code, 302)
+
+    def test_rag_query_missing_question(self):
+        response = self.client.get(reverse("knowledge_base:ajax_rag"))
+        self.assertEqual(response.status_code, 400)
+
+    def test_rag_query_no_config_returns_sources(self):
+        # Without an embedding provider configured, retrieval is skipped but the
+        # endpoint still responds with an empty source list rather than erroring.
+        response = self.client.get(reverse("knowledge_base:ajax_rag"), {"q": "test"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["sources"], [])
+        self.assertIsNone(data["answer"])

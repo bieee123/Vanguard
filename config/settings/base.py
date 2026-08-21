@@ -132,6 +132,7 @@ LOCAL_APPS = [
     "ghostwriter.assets.apps.AssetsConfig",
     "ghostwriter.knowledge_base.apps.KnowledgeBaseConfig",
     "ghostwriter.dettct.apps.DettctConfig",
+    "ghostwriter.purple_team.apps.PurpleTeamConfig",
     "ghostwriter.api.apps.ApiConfig",
     "ghostwriter.status.apps.StatusConfig",
 ]
@@ -419,6 +420,16 @@ VANGUARD_EMBEDDING_MODEL = env("VANGUARD_EMBEDDING_MODEL", default="")
 VANGUARD_EMBEDDING_ENDPOINT = env("VANGUARD_EMBEDDING_ENDPOINT", default="")
 VANGUARD_EMBEDDING_API_KEY = env("VANGUARD_EMBEDDING_API_KEY", default="")
 VANGUARD_EMBEDDING_CHUNK_SIZE = env.int("VANGUARD_EMBEDDING_CHUNK_SIZE", 2000)
+
+# VANGUARD RAG / LLM (PRD 5.14)
+# ------------------------------------------------------------------------------
+# RAG retrieval reuses the embedding provider above; the answer-generation step
+# calls an OpenAI-compatible /chat/completions endpoint (e.g. the LiteLLM proxy
+# Sentinel already uses). The model is not finalized, so everything stays config.
+VANGUARD_LLM_ENDPOINT = env("VANGUARD_LLM_ENDPOINT", default="")
+VANGUARD_LLM_MODEL = env("VANGUARD_LLM_MODEL", default="")
+VANGUARD_LLM_API_KEY = env("VANGUARD_LLM_API_KEY", default="")
+VANGUARD_RAG_TOP_K = env.int("VANGUARD_RAG_TOP_K", 4)
 
 # VANGUARD DETT&CT
 # ------------------------------------------------------------------------------

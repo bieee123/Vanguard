@@ -1,0 +1,93 @@
+{% extends "base_generic.html" %}
+
+{% load custom_tags purple_tags %}
+
+{% block pagetitle %}Timeline Entry #{{ timelineentry.pk }}{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'purple_team:timeline_list' %}">Timeline</a></li>
+      <li class="breadcrumb-item active" aria-current="page">#{{ timelineentry.pk }}</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="page-title mb-0">Timeline Entry #{{ timelineentry.pk }}</h1>
+    {% if request.user|is_privileged %}
+      <a class="btn btn-secondary icon edit-icon" href="{% url 'purple_team:timeline_update' timelineentry.pk %}">Edit</a>
+    {% endif %}
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Entry</div>
+    <div class="card-body">
+      <p><strong>Timestamp:</strong> <span class="font-monospace">{{ timelineentry.timestamp|date:"Y-m-d H:i:s" }}</span></p>
+      <p><strong>Engagement:</strong> {{ timelineentry.engagement }}</p>
+      <p><strong>Asset:</strong> {% if timelineentry.asset %}{{ timelineentry.asset }}{% else %}&mdash;{% endif %}</p>
+      <p><strong>Technique:</strong>
+        {% if timelineentry.technique_id %}
+          <a href="https://attack.mitre.org/techniques/{{ timelineentry.technique_id }}/" target="_blank" rel="noopener">{{ timelineentry.technique_id }}</a>
+        {% else %}&mdash;{% endif %}
+      </p>
+      <p><strong>Outcome:</strong> <span class="badge badge-secondary">{{ timelineentry.get_outcome_display }}</span></p>
+      <p><strong>Action:</strong> {{ timelineentry.action_description }}</p>
+      {% if timelineentry.note %}<p><strong>Note:</strong> {{ timelineentry.note }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Detection Verdict</div>
+    <div class="card-body">
+      {% if verdict %}
+        <p>
+          <span class="badge {{ verdict.verdict|verdict_badge }} badge-lg">
+            {{ verdict.verdict|verdict_icon }} {{ verdict.get_verdict_display }}
+          </span>
+          {% if verdict.confirmed_by_operator %}<span class="text-muted">(confirmed by operator)</span>{% endif %}
+        </p>
+        {% if verdict.matched_sentinel_alert_id %}<p><strong>Matched alert:</strong> {{ verdict.matched_sentinel_alert_id }}</p>{% endif %}
+        {% if verdict.detection_delay_seconds %}<p><strong>Detection delay:</strong> {{ verdict.detection_delay_seconds }}s</p>{% endif %}
+      {% else %}
+        <p class="text-muted">No verdict recorded yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if suggested_match %}
+    <div class="card mb-4">
+      <div class="card-header">Suggested SOC Match (mock)</div>
+      <div class="card-body">
+        <p><strong>Alert:</strong> {{ suggested_match.id }} &mdash; {{ suggested_match.rule }}</p>
+        <p><strong>Asset:</strong> {{ suggested_match.asset }}</p>
+        <p><strong>Timestamp:</strong> <span class="font-monospace">{{ suggested_match.timestamp|date:"Y-m-d H:i:s" }}</span></p>
+        <p><strong>Summary:</strong> {{ suggested_match.summary }}</p>
+        {% if request.user|is_privileged %}
+          <form method="post" action="{% url 'purple_team:ajax_confirm_verdict' timelineentry.pk %}">
+            {% csrf_token %}
+            <div class="form-row">
+              <div class="col-auto">
+                <select name="verdict" class="form-control form-control-sm">
+                  <option value="detected">Detected</option>
+                  <option value="not_detected">Not Detected</option>
+                  <option value="detected_not_escalated">Detected but not escalated</option>
+                  <option value="detected_late">Detected late</option>
+                  <option value="untested">Untested</option>
+                </select>
+              </div>
+              <input type="hidden" name="matched_sentinel_alert_id" value="{{ suggested_match.id }}">
+              <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">Confirm match</button>
+              </div>
+            </div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  <a class="btn btn-secondary" href="{% url 'purple_team:matrix' %}">&larr; Back to Matrix</a>
+{% endblock %}

@@ -20,6 +20,7 @@ from django_q.tasks import async_task
 from ghostwriter.api.utils import RoleBasedAccessControlMixin, verify_user_is_privileged
 from ghostwriter.knowledge_base.models import Note, NoteEmbedding, NoteLink
 from ghostwriter.knowledge_base.forms import NoteForm
+from ghostwriter.knowledge_base.rag import rag_answer
 
 # Using __name__ resolves to ghostwriter.knowledge_base.views
 logger = logging.getLogger(__name__)
@@ -248,3 +249,23 @@ def graph_json(request):
             add_edge(add_node(note.id, "note", note.title, "#7e57c2", {"url": note.get_absolute_url()}), asset_key, "asset")
 
     return JsonResponse({"nodes": nodes, "edges": edges})
+
+
+@require_GET
+def ajax_rag_query(request):
+    """Answer a question against the Knowledge Base via the RAG pipeline (PRD 5.14).
+
+    Returns the generated answer (when an LLM is configured) plus the source
+    note chunks so the UI can render citation chips. Sources are returned even
+    without an LLM so retrieval is testable standalone.
+    """
+    question = request.GET.get("q", "").strip()
+    if not question:
+        return JsonResponse({"error": "Missing query parameter 'q'."}, status=400)
+
+    try:
+        result = rag_answer(question)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.exception("RAG query failed for %r", question)
+        return JsonResponse({"error": f"RAG query failed: {exc}"}, status=500)
+    return JsonResponse(result)

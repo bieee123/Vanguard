@@ -237,8 +237,14 @@
             </ul>
           </li>
 
-          <!-- ATT&CK Matrix (DeTT&CT long-term coverage panel; heatmap + gap report lands in Phase 3) -->
-          <li><a class="icon list-icon" href="{% url 'dettct:index' %}" data-toggle="tooltip" title="ATT&CK Matrix & long-term coverage (DeTT&CT)">ATT&CK Matrix</a></li>
+          <!-- ATT&CK Matrix (live purple team heatmap; DeTT&CT long-term coverage below it) -->
+          <li><a class="icon list-icon" href="{% url 'purple_team:matrix' %}" data-toggle="tooltip" title="ATT&CK Matrix & live detection verdicts (Purple Team Sync)">ATT&CK Matrix</a></li>
+
+          <!-- Timeline (OPSEC log) -->
+          <li><a class="icon history-icon" href="{% url 'purple_team:timeline_list' %}" data-toggle="tooltip" title="Activity timeline & detection verdicts">Timeline</a></li>
+
+          <!-- Rule Requests -->
+          <li><a class="icon comment-icon" href="{% url 'purple_team:rule_request_list' %}" data-toggle="tooltip" title="Detection gap to Wazuh rule change workflow">Rule Requests</a></li>
 
           <!-- Knowledge Base -->
           <li><a class="icon docs-icon" href="{% url 'knowledge_base:index' %}">Knowledge Base</a></li>

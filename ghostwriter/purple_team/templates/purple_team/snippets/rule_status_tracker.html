@@ -1,0 +1,28 @@
+{% load purple_tags %}
+
+{# Horizontal 5-step pill status tracker (design.md 4) #}
+<div class="d-flex align-items-center flex-wrap">
+  {% rule_request_steps status as steps %}
+  {% for step_key, step_label in steps %}
+    {% rule_request_step_state status step_key as state %}
+    {% if state == "rejected" %}
+      <span class="badge badge-danger mr-2 mb-1">
+        Rejected
+        {% if status == "rejected" %}&mdash; waiting on you{% endif %}
+      </span>
+      {% if forloop.last %}{% else %}<span class="mx-1 text-muted">&rarr;</span>{% endif %}
+    {% elif state == "current" %}
+      <span class="badge badge-warning mr-2 mb-1">{{ step_label }} &mdash; <small>waiting on next action</small></span>
+      {% if not forloop.last %}<span class="mx-1 text-muted">&rarr;</span>{% endif %}
+    {% elif state == "complete" %}
+      <span class="badge badge-success mr-2 mb-1">{{ step_label }}</span>
+      {% if not forloop.last %}<span class="mx-1 text-muted">&rarr;</span>{% endif %}
+    {% else %}
+      <span class="badge badge-secondary mr-2 mb-1">{{ step_label }}</span>
+      {% if not forloop.last %}<span class="mx-1 text-muted">&rarr;</span>{% endif %}
+    {% endif %}
+  {% endfor %}
+</div>
+<small class="text-muted d-block mt-1">
+  {% if status == "pending_review" %}Waiting on Sentinel admin approval.{% elif status == "approved" %}Approved; waiting on Sentinel to deploy.{% elif status == "deployed" %}Deployed; waiting on you to run a retest.{% elif status == "rejected" %}Rejected by Sentinel.{% elif status == "verified" %}Verified &mdash; rule is live.{% else %}Draft &mdash; not yet submitted.{% endif %}
+</small>

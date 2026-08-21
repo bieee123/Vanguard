@@ -1,0 +1,144 @@
+{% extends "base_generic.html" %}
+
+{% load custom_tags purple_tags %}
+
+{% block pagetitle %}ATT&CK Matrix &mdash; Purple Team View{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item active" aria-current="page">ATT&amp;CK Matrix</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="page-title mb-0">ATT&amp;CK Matrix &mdash; Purple Team View</h1>
+    <div>
+      <a class="btn btn-primary icon add-icon" href="{% url 'purple_team:timeline_create' %}">Add Timeline Entry</a>
+      <a class="btn btn-info" href="{% url 'dettct:index' %}">Long-term Coverage (DeTT&amp;CT)</a>
+    </div>
+  </div>
+
+  <form method="get" class="form-inline mb-3">
+    <label class="mr-2" for="engagement-filter">Engagement:</label>
+    <select id="engagement-filter" name="engagement" class="form-control form-control-sm mr-2">
+      <option value="">All time</option>
+      {% for entry in object_list %}
+        {% ifchanged entry.engagement_id %}
+          <option value="{{ entry.engagement_id }}" {% if engagement_id == entry.engagement_id|stringformat:"s" %}selected{% endif %}>{{ entry.engagement }}</option>
+        {% endifchanged %}
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm btn-secondary">Filter</button>
+  </form>
+
+  {% if stats.total %}
+    <div class="alert alert-secondary">
+      <strong>Detection Coverage:</strong> {{ stats.coverage_percent }}%
+      ({{ stats.detected }}/{{ stats.total }} actions detected)
+      &mdash; <span class="text-danger">{{ stats.not_detected }} not detected</span>,
+      <span class="text-warning">{{ stats.detected_not_escalated }} detected but not escalated</span>,
+      <span class="text-info">{{ stats.detected_late }} detected late</span>
+    </div>
+  {% endif %}
+
+  <div class="card mb-4">
+    <div class="card-header">Technique Heatmap (by detection outcome)</div>
+    <div class="card-body">
+      {% if heatmap %}
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered text-center">
+            <thead>
+              <tr>
+                <th class="align-middle text-left">Technique</th>
+                <th class="align-middle">Verdict</th>
+                <th class="align-middle">Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for technique_id, row in heatmap.items %}
+                <tr>
+                  <td class="align-middle text-left">
+                    <a href="https://attack.mitre.org/techniques/{{ row.technique_id }}/" target="_blank" rel="noopener">{{ row.technique_id }}</a>
+                  </td>
+                  <td class="align-middle">
+                    <span class="badge {{ row.verdict|verdict_badge }}">{{ row.verdict|verdict_icon }} {{ row.verdict|title }}</span>
+                  </td>
+                  <td class="align-middle">{{ row.count }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="alert alert-warning mb-0">No timeline entries yet. Add an entry above to populate the heatmap.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Detection Gap Report</div>
+    <div class="card-body p-0">
+      {% if gap_report %}
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th class="align-middle text-left">Technique</th>
+              <th class="align-middle text-center">Times succeeded, not detected</th>
+              <th class="align-middle text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for gap in gap_report %}
+              <tr>
+                <td class="align-middle text-left">
+                  <a href="https://attack.mitre.org/techniques/{{ gap.technique_id }}/" target="_blank" rel="noopener">{{ gap.technique_id }}</a>
+                </td>
+                <td class="align-middle text-center">{{ gap.count }}</td>
+                <td class="align-middle text-center">
+                  <a class="btn btn-sm btn-primary"
+                     href="{% url 'purple_team:rule_request_create' %}?technique={{ gap.technique_id }}">Send to Sentinel backlog</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="alert alert-warning mb-0">No detection gaps found. Every tracked technique was detected or has no verdict yet.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if rule_requests %}
+    <div class="card">
+      <div class="card-header">Open Rule Requests</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th class="align-middle text-left">#</th>
+              <th class="align-middle text-left">Technique</th>
+              <th class="align-middle text-left">Status</th>
+              <th class="align-middle text-left">Requested</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for request in rule_requests %}
+              <tr>
+                <td class="align-middle text-left"><a href="{{ request.get_absolute_url }}">#{{ request.pk }}</a></td>
+                <td class="align-middle text-left">{{ request.technique_id }}</td>
+                <td class="align-middle text-left">
+                  <span class="badge {{ request.status|rule_request_status_class }}">{{ request.get_status_display }}</span>
+                </td>
+                <td class="align-middle text-left">{% if request.requested_at %}{{ request.requested_at|date:"DATE_FORMAT" }}{% else %}&mdash;{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

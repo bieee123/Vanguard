@@ -1,0 +1,51 @@
+{% extends "base_generic.html" %}
+
+{% load purple_tags %}
+
+{% block pagetitle %}Rule Requests{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'purple_team:matrix' %}">ATT&amp;CK Matrix</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Rule Requests</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="page-title mb-0">Rule Requests</h1>
+    <a class="btn btn-primary icon add-icon" href="{% url 'purple_team:rule_request_create' %}">New Rule Request</a>
+  </div>
+
+  {% if object_list %}
+    <table class="table table-sm table-hover">
+      <thead>
+        <tr>
+          <th class="align-middle text-left">#</th>
+          <th class="align-middle text-left">Technique</th>
+          <th class="align-middle text-left">Status</th>
+          <th class="align-middle text-left">Requested by</th>
+          <th class="align-middle text-left">Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for request in object_list %}
+          <tr>
+            <td class="align-middle text-left"><a href="{{ request.get_absolute_url }}">#{{ request.pk }}</a></td>
+            <td class="align-middle text-left">{{ request.technique_id }}</td>
+            <td class="align-middle text-left">
+              <span class="badge {{ request.status|rule_request_status_class }}">{{ request.get_status_display }}</span>
+            </td>
+            <td class="align-middle text-left">{% if request.requested_by %}{{ request.requested_by }}{% else %}&mdash;{% endif %}</td>
+            <td class="align-middle text-left">{{ request.created_at|date:"DATE_FORMAT" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="alert alert-warning">No rule requests yet. Create one from a detection gap on the ATT&amp;CK Matrix page.</div>
+  {% endif %}
+{% endblock %}

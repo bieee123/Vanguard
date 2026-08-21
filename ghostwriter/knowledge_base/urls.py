@@ -22,4 +22,5 @@ urlpatterns += [
     path("ajax/autocomplete/", views.ajax_note_autocomplete, name="ajax_autocomplete"),
     path("ajax/links/<int:pk>", views.ajax_note_links, name="ajax_note_links"),
     path("graph/json/", views.graph_json, name="graph_json"),
+    path("ajax/rag/", views.ajax_rag_query, name="ajax_rag"),
 ]

@@ -2,6 +2,7 @@
 
 # Django Imports
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 # Ghostwriter Libraries
@@ -36,7 +37,10 @@ class DeTTCTRunModelTests(TestCase):
         self.assertIn("DeTT&CT run", str(self.dettct_run))
 
     def test_get_absolute_url(self):
-        self.assertEqual(self.dettct_run.get_absolute_url(), f"/attack-matrix/runs/{self.dettct_run.pk}")
+        self.assertEqual(
+            self.dettct_run.get_absolute_url(),
+            reverse("dettct:run_detail", args=[self.dettct_run.pk]),
+        )
 
     def test_data_sources_property(self):
         self.assertEqual(len(self.dettct_run.data_sources), 1)

@@ -1,0 +1,73 @@
+{% extends "base_generic.html" %}
+
+{% load custom_tags purple_tags %}
+
+{% block pagetitle %}Rule Request #{{ rule_request.pk }}{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'purple_team:rule_request_list' %}">Rule Requests</a></li>
+      <li class="breadcrumb-item active" aria-current="page">#{{ rule_request.pk }}</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="page-title mb-0">Rule Request #{{ rule_request.pk }} &mdash; {{ rule_request.technique_id }}</h1>
+    <a class="btn btn-secondary" href="{% url 'purple_team:matrix' %}">Back to Matrix</a>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Status Tracker</div>
+    <div class="card-body">
+      {% include "purple_team/snippets/rule_status_tracker.html" with status=rule_request.status %}
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Details</div>
+    <div class="card-body">
+      <p><strong>Technique:</strong>
+        <a href="https://attack.mitre.org/techniques/{{ rule_request.technique_id }}/" target="_blank" rel="noopener">{{ rule_request.technique_id }}</a>
+      </p>
+      {% if rule_request.timeline_entry %}
+        <p><strong>Timeline entry:</strong> <a href="{{ rule_request.timeline_entry.get_absolute_url }}">{{ rule_request.timeline_entry }}</a></p>
+      {% endif %}
+      <p><strong>Requested by:</strong> {% if rule_request.requested_by %}{{ rule_request.requested_by }}{% else %}&mdash;{% endif %}</p>
+      <p><strong>Requested at:</strong> {% if rule_request.requested_at %}{{ rule_request.requested_at|date:"DATE_FORMAT" }}{% else %}&mdash;{% endif %}</p>
+      {% if rule_request.approved_by %}<p><strong>Approved by:</strong> {{ rule_request.approved_by }}</p>{% endif %}
+      {% if rule_request.approved_at %}<p><strong>Approved at:</strong> {{ rule_request.approved_at|date:"DATE_FORMAT" }}</p>{% endif %}
+      {% if rule_request.deployed_at %}<p><strong>Deployed at:</strong> {{ rule_request.deployed_at|date:"DATE_FORMAT" }}</p>{% endif %}
+      {% if rule_request.verified_at %}<p><strong>Verified at:</strong> {{ rule_request.verified_at|date:"DATE_FORMAT" }}</p>{% endif %}
+      {% if rule_request.rejection_reason %}<p><strong>Rejection reason:</strong> {{ rule_request.rejection_reason }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Draft Rule</div>
+    <div class="card-body">
+      <pre class="bg-light p-3" style="max-height: 300px; overflow: auto;">{{ rule_request.draft_rule_xml }}</pre>
+      {% if rule_request.test_log_sample_path %}
+        <p><strong>Test log sample:</strong> <code>{{ rule_request.test_log_sample_path }}</code></p>
+      {% endif %}
+      {% if rule_request.justification %}
+        <p><strong>Justification:</strong> {{ rule_request.justification }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if rule_request.status == "draft" and request.user|is_privileged %}
+    <div class="card">
+      <div class="card-header">Actions</div>
+      <div class="card-body">
+        <form method="post" action="{% url 'purple_team:rule_request_submit' rule_request.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-primary">Submit for Review</button>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

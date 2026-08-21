@@ -1,0 +1,83 @@
+{% extends "base_generic.html" %}
+
+{% load custom_tags purple_tags %}
+
+{% block pagetitle %}Purple Team Sync &mdash; Timeline{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Timeline</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="page-title mb-0">Activity Timeline (OPSEC Log)</h1>
+    <a class="btn btn-primary icon add-icon" href="{% url 'purple_team:timeline_create' %}">Add Entry</a>
+  </div>
+
+  {% if stats.total %}
+    <div class="alert alert-secondary">
+      <strong>Detection Coverage:</strong> {{ stats.coverage_percent }}%
+      ({{ stats.detected }}/{{ stats.total }} actions detected)
+    </div>
+  {% endif %}
+
+  <form method="get" class="form-inline mb-3">
+    <input type="text" name="technique" class="form-control form-control-sm mr-2" placeholder="Technique (e.g. T1059.001)" value="{{ technique }}">
+    <button type="submit" class="btn btn-sm btn-secondary">Filter</button>
+  </form>
+
+  {% if object_list %}
+    <div class="list-group">
+      {% for entry in object_list %}
+        <div class="list-group-item">
+          <div class="d-flex justify-content-between">
+            <div>
+              <span class="font-monospace">{{ entry.timestamp|date:"Y-m-d H:i" }}</span>
+              {% if entry.technique_id %}
+                <span class="badge badge-primary">{{ entry.technique_id }}</span>
+              {% endif %}
+              <span class="badge badge-secondary">{{ entry.get_outcome_display }}</span>
+              {% if entry.verdict %}
+                <span class="badge {{ entry.verdict.verdict|verdict_badge }}">
+                  {{ entry.verdict.verdict|verdict_icon }} {{ entry.verdict.get_verdict_display }}
+                </span>
+              {% endif %}
+            </div>
+            <div>
+              <a class="btn btn-sm btn-secondary" href="{{ entry.get_absolute_url }}">View</a>
+              {% if request.user|is_privileged %}
+                <a class="btn btn-sm btn-secondary" href="{% url 'purple_team:timeline_update' entry.id %}">Edit</a>
+              {% endif %}
+            </div>
+          </div>
+          <p class="mb-0 mt-1">{{ entry.action_description }}</p>
+          <small class="text-muted">
+            {{ entry.engagement }}
+            {% if entry.asset %} &mdash; {{ entry.asset }}{% endif %}
+          </small>
+        </div>
+      {% endfor %}
+    </div>
+
+    {% if is_paginated %}
+      <nav aria-label="Page navigation" class="mt-3">
+        <ul class="pagination">
+          {% if page_obj.has_previous %}
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}&technique={{ technique }}">Previous</a></li>
+          {% endif %}
+          <li class="page-item disabled"><span class="page-link">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span></li>
+          {% if page_obj.has_next %}
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}&technique={{ technique }}">Next</a></li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="alert alert-warning">No timeline entries yet. Add one above.</div>
+  {% endif %}
+{% endblock %}

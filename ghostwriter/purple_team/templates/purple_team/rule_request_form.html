@@ -1,0 +1,36 @@
+{% extends "base_generic.html" %}
+
+{% load crispy_forms_tags %}
+
+{% block pagetitle %}New Rule Request{% endblock %}
+
+{% block breadcrumbs %}
+  <nav aria-label="breadcrumb">
+    <ul class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'home:dashboard' %}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'purple_team:rule_request_list' %}">Rule Requests</a></li>
+      <li class="breadcrumb-item active" aria-current="page">New</li>
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="page-title mb-0">New Rule Request</h1>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p class="text-muted">
+        Create a draft rule request for a detection gap. Submitting it moves the request to
+        <em>Pending Review</em>; approval, deployment, and rejection are driven by Sentinel.
+      </p>
+      <form method="post">
+        {% csrf_token %}
+        {{ form|crispy }}
+        <button type="submit" class="btn btn-primary">Save Draft</button>
+        <a class="btn btn-secondary" href="{% url 'purple_team:matrix' %}">Cancel</a>
+      </form>
+    </div>
+  </div>
+{% endblock %}

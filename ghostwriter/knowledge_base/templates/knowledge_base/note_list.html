@@ -51,6 +51,20 @@
 
     <!-- Center: note library list -->
     <div class="col-9">
+      <!-- RAG question box (PRD 5.14 / design.md 5.9) -->
+      <div class="card mb-3">
+        <div class="card-header">Ask the Knowledge Base</div>
+        <div class="card-body">
+          <div class="input-group">
+            <input type="text" id="kb-rag-input" class="form-control" placeholder="Ask a question grounded in your notes..." autocomplete="off">
+            <div class="input-group-append">
+              <button class="btn btn-primary" type="button" id="kb-rag-button">Ask</button>
+            </div>
+          </div>
+          <div id="kb-rag-result" class="mt-3 d-none"></div>
+        </div>
+      </div>
+
       {% if page_obj %}
         <table class="table table-sm table-hover">
           <thead>
@@ -118,6 +132,49 @@
 {% block morescripts %}
   <script>
     $(function () {
+      // RAG question box (PRD 5.14): POST-free GET to /ajax/rag/ then render
+      // the answer plus citation chips for each source note.
+      function runRagQuery() {
+        const q = $.trim($('#kb-rag-input').val());
+        if (!q) {
+          return;
+        }
+        const $result = $('#kb-rag-result');
+        $result.removeClass('d-none').html('<div class="text-muted">Thinking&hellip;</div>');
+        $.getJSON("{% url 'knowledge_base:ajax_rag' %}", { q: q })
+          .done(function (data) {
+            let html = '<div class="card"><div class="card-body">';
+            if (data.answer) {
+              html += '<p class="mb-2">' + $('<div>').text(data.answer).html() + '</p>';
+            } else {
+              html += '<p class="mb-2 text-muted">No answer generated (LLM not configured). Showing source notes only.</p>';
+            }
+            if (data.sources && data.sources.length) {
+              html += '<div class="small"><strong>Sources:</strong>';
+              data.sources.forEach(function (source) {
+                html += ' <a class="badge badge-primary" href="/knowledge-base/notes/' +
+                  source.note_id + '">' + $('<span>').text(source.note_title).html() + '</a>';
+              });
+              html += '</div>';
+            } else {
+              html += '<div class="small text-muted">No matching notes found.</div>';
+            }
+            html += '</div></div>';
+            $result.html(html);
+          })
+          .fail(function () {
+            $result.html('<div class="alert alert-danger mb-0">RAG query failed.</div>');
+          });
+      }
+
+      $('#kb-rag-button').on('click', runRagQuery);
+      $('#kb-rag-input').on('keydown', function (e) {
+        if (e.keyCode === 13) {
+          e.preventDefault();
+          runRagQuery();
+        }
+      });
+
       // Simple force-less node renderer: nodes placed in a circle, edges as lines
       $('#kb-graph-toggle').on('click', function (e) {
         e.preventDefault();
