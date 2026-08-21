@@ -19,6 +19,7 @@ from django.views.generic import CreateView, DetailView, ListView, UpdateView
 
 # Ghostwriter Libraries
 from ghostwriter.api.utils import RoleBasedAccessControlMixin, verify_user_is_privileged
+from ghostwriter.dettct.models import DeTTCTRun
 from ghostwriter.purple_team import services
 from ghostwriter.purple_team.forms import (
     DetectionVerdictForm,
@@ -156,6 +157,14 @@ class MatrixView(RoleBasedAccessControlMixin, ListView):
         ctx["gap_report"] = services.detection_gap_report(queryset)
         ctx["stats"] = services.verdict_stats(queryset)
         ctx["rule_requests"] = RuleRequest.objects.select_related("requested_by").all()[:50]
+        latest_run = DeTTCTRun.objects.first()
+        ctx["latest_run"] = latest_run
+        if latest_run:
+            ctx["coverage_stats"] = latest_run.coverage_stats
+            ctx["data_sources"] = latest_run.data_sources
+            ctx["techniques"] = latest_run.techniques
+            ctx["techniques_by_id"] = {t["technique_id"]: t for t in latest_run.techniques}
+            ctx["groups"] = latest_run.groups
         return ctx
 
 

@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 # Ghostwriter Libraries
+from ghostwriter.dettct.models import DeTTCTRun
 from ghostwriter.factories import AdminFactory, ProjectFactory, UserFactory
 from ghostwriter.purple_team.models import DetectionVerdict, RuleRequest, TimelineEntry
 
@@ -126,6 +127,24 @@ class MatrixViewTests(TestCase):
             technique_id="T1562.001",
             draft_rule_xml="<rule id=\"100001\">...</rule>",
         )
+        DeTTCTRun.objects.create(
+            output_file_path="/tmp/dettct.yaml",
+            run_at=timezone.now(),
+            payload={
+                "file_type": "techniques-administration",
+                "name": "Endpoints",
+                "data_sources": [
+                    {"name": "Process Creation", "connected": True, "products": [], "average_quality": 4.0}
+                ],
+                "techniques": [
+                    {"technique_id": "T1059.001", "name": "PowerShell", "detection_score": 4, "visibility_score": 3, "detection_count": 1},
+                    {"technique_id": "T1562.001", "name": "Impair Defenses", "detection_score": 0, "visibility_score": 1, "detection_count": 1},
+                ],
+                "groups": [
+                    {"group_name": "FIN7", "campaign": "", "technique_ids": ["T1059.001"]}
+                ],
+            },
+        )
 
     def setUp(self):
         self.client.login(username=self.user.username, password=PASSWORD)
@@ -143,6 +162,14 @@ class MatrixViewTests(TestCase):
         response = self.client.get(reverse("purple_team:matrix"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Detection Coverage")
+
+    def test_matrix_renders_dettct_panel(self):
+        # The long-term coverage panel (design.md 5.6) appears on the matrix page
+        # fed by the latest DeTT&CT run; a "Last updated" label distinguishes it.
+        response = self.client.get(reverse("purple_team:matrix"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Long-term Coverage (DeTT")
+        self.assertContains(response, "Last updated")
 
 
 class RuleRequestViewTests(TestCase):

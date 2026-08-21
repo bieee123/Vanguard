@@ -112,6 +112,76 @@
     </div>
   </div>
 
+  <div class="card mb-4">
+    <div class="card-header">Long-term Coverage (DeTT&amp;CT)</div>
+    <div class="card-body">
+      {% if latest_run %}
+        <p class="text-muted small">
+          <strong>Last updated:</strong> {{ latest_run.run_at|date:"DATE_FORMAT" }}
+          at {{ latest_run.run_at|time:"TIME_FORMAT" }}
+          <span class="text-muted">(imported {{ latest_run.imported_at|date:"DATE_FORMAT" }})</span>
+          &mdash; read-only snapshot, not a live query.
+        </p>
+        <div class="p-0">
+          <table class="table table-sm table-hover mb-2">
+            <thead>
+              <tr>
+                <th class="align-middle text-left">Technique</th>
+                <th class="align-middle text-left">Name</th>
+                <th class="align-middle text-center">Detection score</th>
+                <th class="align-middle text-center">Visibility score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for technique in techniques %}
+                <tr>
+                  <td class="align-middle text-left">
+                    <a href="https://attack.mitre.org/techniques/{{ technique.technique_id }}/" target="_blank" rel="noopener">{{ technique.technique_id }}</a>
+                  </td>
+                  <td class="align-middle text-left">{{ technique.name }}</td>
+                  <td class="align-middle text-center">
+                    {% if technique.detection_score %}
+                      {% if technique.detection_score >= 3 %}
+                        <span class="badge badge-success">{{ technique.detection_score }}</span>
+                      {% elif technique.detection_score >= 1 %}
+                        <span class="badge badge-warning">{{ technique.detection_score }}</span>
+                      {% else %}
+                        <span class="badge badge-secondary">{{ technique.detection_score }}</span>
+                      {% endif %}
+                    {% else %}&mdash;{% endif %}
+                  </td>
+                  <td class="align-middle text-center">{% if technique.visibility_score %}{{ technique.visibility_score }}{% else %}&mdash;{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% if groups %}
+            <h6 class="mt-2">Threat-group TTP coverage</h6>
+            {% for group in groups %}
+              <div class="border-bottom p-2">
+                <span class="text-muted">{{ group.group_name }}</span>
+                {% if group.campaign %}<small class="text-muted">({{ group.campaign }})</small>{% endif %}
+                {% for technique_id in group.technique_ids %}
+                  {% if technique_id|stringformat:"s" in techniques_by_id %}
+                    <span class="badge badge-success mr-1">{{ technique_id }} (covered)</span>
+                  {% else %}
+                    <span class="badge badge-secondary mr-1">{{ technique_id }}</span>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endfor %}
+          {% endif %}
+          <div class="text-muted small mt-2">
+            Source file: <code>{{ latest_run.output_file_path }}</code>
+            (<a href="{% url 'dettct:run_detail' latest_run.pk %}">view raw snapshot</a>)
+          </div>
+        </div>
+      {% else %}
+        <div class="alert alert-warning mb-0">No DeTT&amp;CT output has been imported yet.</div>
+      {% endif %}
+    </div>
+  </div>
+
   {% if rule_requests %}
     <div class="card">
       <div class="card-header">Open Rule Requests</div>
