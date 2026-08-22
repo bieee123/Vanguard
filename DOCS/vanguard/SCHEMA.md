@@ -2,6 +2,8 @@
 
 PostgreSQL 15+, `pgvector` extension required (Knowledge Base module). Grouped by PRD.md module number. Written as reference DDL — adapt to Django ORM migrations rather than running raw, since you're building inside the Ghostwriter fork and should reuse its existing `users`/auth tables (5.13) instead of creating new ones if Ghostwriter already has them.
 
+> **Status (2026-08-22):** `notes`/`note_links`/`note_embeddings` (5.14), `timeline_entries`/`detection_verdicts`/`rule_requests` (5.7/6.5), and `dettct_runs` (DeTT&CT) are implemented as Django ORM models/migrations. `sentinel_connections` (PRD section 6) is spec'd here but **not yet built** — deferred with Steps 9–10 until Sentinel's API is available. DDL below remains the target.
+
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

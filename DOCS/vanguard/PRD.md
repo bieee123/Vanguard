@@ -257,6 +257,8 @@ Vanguard  ──POST rule-request──>  Sentinel  ──(after approval) write
 
 ## 9. Phased Roadmap
 
+> **Status (2026-08-22):** Phase 1 and Phase 2's core are implemented and committed; Purple Team Sync (5.7), the Rule Request workflow (6.5), and DeTT&CT ingestion are live. Step 9 (live Sentinel client) and Step 10 (wire rule requests to Sentinel) are deferred until Sentinel's API is available — see `SETUP.md` → Implementation Status for the per-step table and commit refs.
+
 **Phase 1 (MVP)**
 Fork Ghostwriter, strip consultant/multi-client features, rebrand + restyle UI per `design.md`. Engagement Management, Asset Inventory, Findings Management, basic Timeline, manual reporting export — largely reused from the fork with light adaptation (5.1–5.3, 5.5, 5.8 basic). Expect this phase to move faster than a from-scratch build since the data model and UI scaffolding already exist.
 

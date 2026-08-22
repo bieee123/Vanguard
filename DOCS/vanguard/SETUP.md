@@ -6,6 +6,25 @@
 
 ---
 
+## Implementation Status
+
+Current state of the build, tracked against the steps below (last updated 2026-08-22).
+
+| Step | Status | Notes |
+|---|---|---|
+| 0–4 (fork, bring-up, rebrand) | ✅ Done | Fork baseline + full rebrand to Vanguard |
+| 5 (core modules) | ✅ Done | Dashboard, Assets, Findings, Reports |
+| 6 (Knowledge Base) | ✅ Done | Notes, backlinks, graph, embeddings, RAG polish (v0 `rag_answer` + citation chips) |
+| 7 (Purple Team Sync) | ✅ Done | `TimelineEntry`/`DetectionVerdict`/`RuleRequest`, ATT&CK Matrix (heatmap + gap report + embedded DeTT&CT panel), timeline CRUD, mock alert correlation |
+| 8 (Rule Request workflow) | ✅ Done | `draft → pending_review` from UI, `verified` by operator after retest, `simulate_sentinel_rule_response` command + admin actions for the Sentinel side |
+| 9 (Sentinel integration) | ⏸ Deferred | Stub/mock still in place (`services.mock_sentinel_alerts`); live client blocked until Sentinel's API is ready (SETUP.md 9) |
+| 10 (wire rule requests to Sentinel) | ⏸ Deferred | Depends on Step 9 |
+| 11 (DeTT&CT scheduled job) | ✅ Done | `import_dettct` command reads output YAML; read-only "Long-term Coverage" panel with `Last updated` |
+
+Commits: `8eccc293` (DeTT&CT), `94d3da64` (Purple Team + RAG), `fea24180` (DeTT&CT panel embed), `f2f1af9d` (rule request lifecycle).
+
+---
+
 ## 0. Prerequisites
 
 - Git
