@@ -63,9 +63,30 @@
     <div class="card">
       <div class="card-header">Actions</div>
       <div class="card-body">
-        <form method="post" action="{% url 'purple_team:rule_request_submit' rule_request.pk %}">
+        <form method="post" action="{% url 'purple_team:rule_request_submit' rule_request.pk %}" class="d-inline">
           {% csrf_token %}
           <button type="submit" class="btn btn-primary">Submit for Review</button>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if rule_request.status == "deployed" and request.user|is_privileged %}
+    <div class="card">
+      <div class="card-header">Retest</div>
+      <div class="card-body">
+        <p class="text-muted">
+          The rule is deployed on Wazuh. Re-run the technique described by this request
+          and record the result below. A failed retest returns the request to
+          <em>Draft</em> so you can revise and resubmit.
+        </p>
+        <form method="post" action="{% url 'purple_team:rule_request_verify' rule_request.pk %}" class="d-inline mr-2">
+          {% csrf_token %}
+          <button type="submit" name="retest" value="passed" class="btn btn-success">Retest passed — verified</button>
+        </form>
+        <form method="post" action="{% url 'purple_team:rule_request_verify' rule_request.pk %}" class="d-inline">
+          {% csrf_token %}
+          <button type="submit" name="retest" value="failed" class="btn btn-outline-danger">Retest failed — back to draft</button>
         </form>
       </div>
     </div>

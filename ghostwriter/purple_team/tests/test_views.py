@@ -250,6 +250,49 @@ class RuleRequestViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_verify_passed_marks_verified(self):
+        self.rule_request.status = RuleRequest.Status.DEPLOYED
+        self.rule_request.save()
+        response = self.client.post(
+            reverse("purple_team:rule_request_verify", args=[self.rule_request.id]),
+            {"retest": "passed"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.rule_request.refresh_from_db()
+        self.assertEqual(self.rule_request.status, RuleRequest.Status.VERIFIED)
+        self.assertIsNotNone(self.rule_request.verified_at)
+
+    def test_verify_failed_returns_to_draft(self):
+        self.rule_request.status = RuleRequest.Status.DEPLOYED
+        self.rule_request.save()
+        response = self.client.post(
+            reverse("purple_team:rule_request_verify", args=[self.rule_request.id]),
+            {"retest": "failed"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.rule_request.refresh_from_db()
+        self.assertEqual(self.rule_request.status, RuleRequest.Status.DRAFT)
+        self.assertIsNone(self.rule_request.verified_at)
+
+    def test_verify_requires_deployed(self):
+        # Only deployed requests can be verified from Vanguard's side
+        # (SETUP.md 8.4); pending_review requests stay Sentinel's to move.
+        response = self.client.post(
+            reverse("purple_team:rule_request_verify", args=[self.rule_request.id]),
+            {"retest": "passed"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_verify_requires_privileged(self):
+        self.rule_request.status = RuleRequest.Status.DEPLOYED
+        self.rule_request.save()
+        self.client.login(username=self.user.username, password=PASSWORD)
+        response = self.client.post(
+            reverse("purple_team:rule_request_verify", args=[self.rule_request.id]),
+            {"retest": "passed"},
+        )
+        self.assertEqual(response.status_code, 403)
+
 
 class ConfirmVerdictTests(TestCase):
     """Test the AJAX confirm-verdict endpoint."""

@@ -36,6 +36,11 @@ urlpatterns += [
         views.submit_rule_request,
         name="rule_request_submit",
     ),
+    path(
+        "rule-requests/<int:pk>/verify",
+        views.verify_rule_request,
+        name="rule_request_verify",
+    ),
 ]
 
 # AJAX endpoints

@@ -241,6 +241,35 @@ def submit_rule_request(request, pk):
 
 
 @require_POST
+def verify_rule_request(request, pk):
+    """Record the operator's retest result (SETUP.md 8.4 / PRD 6.5 step 6).
+
+    Only ``deployed`` requests can be verified from Vanguard's side. A failed
+    retest goes back to ``draft`` so the operator can revise the rule and
+    resubmit; the gap therefore stays visible in the Detection Gap Report until
+    it is resolved. ``verified`` is the only status Vanguard sets other than
+    ``draft``/``pending_review``; approvals and deployments remain Sentinel's.
+    """
+    rule_request = get_object_or_404(RuleRequest, pk=pk)
+    if not verify_user_is_privileged(request.user):
+        return JsonResponse({"error": "Permission denied."}, status=403)
+    if rule_request.status != RuleRequest.Status.DEPLOYED:
+        return JsonResponse(
+            {"error": "Only deployed requests can be verified or reopened."}, status=400
+        )
+    retest_passed = request.POST.get("retest") == "passed"
+    if retest_passed:
+        rule_request.status = RuleRequest.Status.VERIFIED
+        rule_request.verified_at = timezone.now()
+        rule_request.save()
+    else:
+        rule_request.status = RuleRequest.Status.DRAFT
+        rule_request.verified_at = None
+        rule_request.save()
+    return JsonResponse({"status": rule_request.status, "label": rule_request.get_status_display()})
+
+
+@require_POST
 def confirm_verdict(request, pk):
     """Confirm the suggested SOC match (or override) for a timeline entry's verdict."""
     if not verify_user_is_privileged(request.user):
