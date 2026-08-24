@@ -11,6 +11,7 @@ Red team operations console — rebuild of Vanguard (ex-Ghostwriter fork) as a
 | Doc | Isi |
 |---|---|
 | [docs/PRD.md](docs/PRD.md) | **PRD v2** — scope paritas penuh, spec per modul, keputusan arsitektur, roadmap |
+| [docs/SPRINTS.md](docs/SPRINTS.md) | Pembagian 5 sprint + backlog pasca-sprint 5 |
 | [docs/design-system.md](docs/design-system.md) | Design system "Obsidian Red Team Console" (token, komponen, layout halaman) |
 | [docs/data-model-reference.md](docs/data-model-reference.md) | Model data v1 sebagai referensi semantik entitas |
 | [docs/features-checklist.md](docs/features-checklist.md) | Checklist fitur lengkap untuk paritas penuh |
