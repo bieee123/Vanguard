@@ -29,7 +29,11 @@ approval manusia.
 semua anggota dipercaya). Tidak ada tier manager/operator, tidak ada permission matrix,
 tidak ada flag granular.
 
-- Auth: email/username + password + **MFA TOTP wajib untuk SEMUA user**, recovery codes.
+- Auth: email/username + password + **MFA OTP via email wajib untuk SEMUA user**
+  (kode 6-digit dikirim saat login, expirasi ±5 menit) + recovery codes.
+  Trade-off diterima: keamanan bergantung pada keamanan mailbox + deliverability SMTP
+  (SMTP sudah dibutuhkan modul Notifications). Recovery codes mencegah lockout saat
+  email gangguan.
 - Service-to-service pakai API key scoped (untuk Sentinel nanti).
 - Audit trail tetap wajib: dengan multi-admin, semua mutasi penting tercatat
   (siapa, kapan, before/after ringkas).
@@ -47,7 +51,6 @@ Semua fitur v1 direplikasi + penambahan baru. Urutan fase mengikuti dependensi
 | M2 | Application & Engagement Management | 0 | checklist §A (Client → Application) |
 | M3 | Asset Inventory | 1 | modul native v1 |
 | M4 | Findings per Project (+CVSS, tags, observation) | 1 | checklist §A, dimodifikasi — lihat §5 M4 |
-| M5 | Operation Log (oplog grid) | 1 | checklist §A |
 | M6 | Reporting Engine (template HTML → PDF via headless Chromium, evidence, archive) | 2 | bagian tersulit — lihat §4.4 |
 | M7 | Purple Team Sync (timeline, verdict, matrix, gap report, rule request) | 2 | modul native v1 |
 | M8 | Dashboard Ops | 2 | design §6.1 |
@@ -80,7 +83,8 @@ Semua fitur v1 direplikasi + penambahan baru. Urutan fase mengikuti dependensi
 
 ### 4.3 Auth & Audit
 - **better-auth**: sesi httpOnly cookie, password hash argon2/bcrypt.
-- MFA: TOTP (otpauth) + recovery codes — **wajib untuk semua user**.
+- MFA: **OTP via email** (kode 6-digit dikirim saat login, expirasi ±5 menit) +
+  recovery codes — **wajib untuk semua user**. Prasyarat: SMTP terkonfigurasi.
 - RBAC minimal: semua user terautentikasi = admin. Assignment ke engagement tetap
   dicatat sebagai penanggung jawab (metadata), bukan pembatas akses.
 - Service API keys: tabel sendiri, scope read/write + resource scope, hash di DB.
@@ -131,9 +135,9 @@ Format tiap modul: Tujuan · Fitur · Entitas · Halaman. Detail field lengkap m
 `data-model-reference.md` (semantik sama, nama bebas disesuaikan Prisma).
 
 ### M1 Auth/User/Audit
-- Fitur: login, logout, ganti password, enroll TOTP (wajib), recovery codes, CRUD user,
-  profil+avatar, audit log append-only.
-- Entitas: User, Session, MfaFactor, RecoveryCode, ApiKey, AuditLog.
+- Fitur: login, logout, ganti password, enroll email OTP (wajib), recovery codes,
+  CRUD user, profil+avatar, audit log append-only.
+- Entitas: User, Session, EmailOtpCode, RecoveryCode, ApiKey, AuditLog.
 - Halaman: `/login`, `/settings/account`, `/settings/security`, `/settings/users`.
 
 ### M2 Application & Engagement Management
@@ -164,11 +168,6 @@ Format tiap modul: Tujuan · Fitur · Entitas · Halaman. Detail field lengkap m
   dalam konteks satu aplikasi target.
 - Entitas: Finding(project_id FK required), Observation, Severity, FindingType, Tag.
 
-### M5 Oplog
-- Fitur: oplog per engagement, entry bulk-grid editor (inline add/edit/delete),
-  import CSV, export CSV, sanitization rules, mute toggle.
-- Entitas: Oplog, OplogEntry, SanitizationRule.
-
 ### M6 Reporting Engine
 - Fitur: buat report dari engagement; findings otomatis diambil dari project yang sama
   (dipilih mana yang masuk); urutkan; evidence upload; edit narasi section (markdown);
@@ -180,8 +179,11 @@ Format tiap modul: Tujuan · Fitur · Entitas · Halaman. Detail field lengkap m
 
 ### M7 Purple Team Sync
 - Fitur: timeline entry CRUD (teknik ATT&CK, tactic, outcome, asset, timestamp,
-  deskripsi); verdict 1-1 per entry (detected / not_detected / partial / late /
-  untested) + konfirmasi operator dari suggested alert match (mock sampai M12);
+  deskripsi); **field opsional detail teknis**: `command` dan `technical_notes`
+  (pengganti nilai guna oplog — jejak command/output untuk report & deconfliction,
+  satu tempat satu UI); verdict 1-1 per entry (detected / not_detected / partial /
+  late / untested) + konfirmasi operator dari suggested alert match (mock sampai
+  M12);
   ATT&CK Matrix page: toolbar filter (engagement/verdict/search) + heatmap tile +
   gap analytics table + tombol "Send to Sentinel backlog" membuka drawer form;
   rule request lifecycle draft→pending_review→approved→deployed→verified (+rejected)
@@ -232,12 +234,11 @@ Format tiap modul: Tujuan · Fitur · Entitas · Halaman. Detail field lengkap m
 
 | Milestone | Isi | Keluaran uji |
 |---|---|---|
-| **M0** | Scaffold Next.js + Prisma + better-auth + CI lint/test + Docker Compose dev | login + MFA jalan |
-| **M1** | User mgmt + settings account/security + audit log dasar | CRUD user + TOTP wajib |
+| **M0** | Scaffold Next.js + Prisma + better-auth + SMTP dev (mailhog) + CI lint/test + Docker Compose dev | login + OTP email jalan |
+| **M1** | User mgmt + settings account/security + audit log dasar | CRUD user + OTP email wajib |
 | **M2** | Application & engagement management penuh | alur application→project→assignment |
 | **M3** | Asset inventory | CRUD + link engagement |
 | **M4** | Findings per project + observations | CRUD + CSV export |
-| **M5** | Oplog grid | bulk edit + import/export |
 | **M6** | Reporting engine (HTML template → PDF via Playwright) | generate PDF end-to-end |
 | **M7** | Purple Team Sync lengkap (mock alert) | matrix+gap+drawer+lifecycle simulasi |
 | **M8** | Dashboard ops | panel hidup dgn data real |
@@ -277,6 +278,9 @@ ditambah bertahap mengikuti data yang sudah ada.
 lewat section changelog di bawah, review manual oleh owner.
 
 ## Changelog
+- 2026-08-24 (r3): MFA diganti TOTP → **OTP via email** (recovery codes tetap;
+  prasyarat SMTP). Modul Oplog dihapus dari scope — nilai jejak teknis dipindah
+  jadi field opsional `command`/`technical_notes` di TimelineEntry (M7).
 - 2026-08-24 (r2): Keputusan owner — role disederhanakan jadi Admin tunggal
   (MFA TOTP wajib semua user); Reporting Engine output PDF saja via HTML+Chromium;
   Findings wajib per-project; entitas Client diganti Application; collab editor
