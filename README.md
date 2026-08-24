@@ -15,7 +15,9 @@ Red team operations console — rebuild of Vanguard (ex-Ghostwriter fork) as a
 | [docs/design-system.md](docs/design-system.md) | Design system "Obsidian Red Team Console" (token, komponen, layout halaman) |
 | [docs/data-model-reference.md](docs/data-model-reference.md) | Model data v1 sebagai referensi semantik entitas |
 | [docs/features-checklist.md](docs/features-checklist.md) | Checklist fitur lengkap untuk paritas penuh |
-| [docs/integrations/api-reference.md](integrations/api-reference.md) | Kontrak integrasi: Sentinel API, DeTT&CT, RAG, Hasura-lama |
+| [docs/integrations/api-reference.md](docs/integrations/api-reference.md) | Kontrak integrasi: Sentinel API, DeTT&CT, RAG, Hasura-lama |
+| [docs/reference/v1-endpoints.md](docs/reference/v1-endpoints.md) | (historis) Inventory endpoint v1 — cek paritas fitur |
+| [docs/reference/v1-data-model-notes.md](docs/reference/v1-data-model-notes.md) | (historis) Catatan praktis model data v1 |
 | [docs/samples/](samples/) | Contoh fixture (DeTT&CT YAML) |
 
 ## Stack
