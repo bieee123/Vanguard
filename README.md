@@ -21,11 +21,11 @@ Red team operations console — rebuild of Vanguard (ex-Ghostwriter fork) as a
 
 - Next.js (App Router, TypeScript strict) — frontend + API dalam satu app
 - PostgreSQL 15 + pgvector · ORM: Prisma
-- Auth: better-auth (sesi + TOTP MFA + recovery codes)
+- Auth: better-auth (sesi + TOTP MFA wajib semua user + recovery codes)
+- Role: Admin tunggal (semua user full access) + audit log
 - Jobs: pg-boss (queue di Postgres — tanpa Redis)
-- Collab realtime: TipTap + Hocuspocus
-- Report generator: docxtemplater (DOCX) · exceljs (XLSX) · pptxgenjs (PPTX)
+- Report generator: **PDF saja** — template HTML/React → headless Chromium (Playwright)
 
 ## Kontainer target (compose)
 
-`postgres` · `app` (next start) · `worker` (pg-boss runner) · `collab` (hocuspocus)
+`postgres` · `app` (next start, image membawa Chromium untuk PDF) · `worker` (pg-boss runner)

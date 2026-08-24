@@ -25,15 +25,16 @@ approval manusia.
 
 ## 2. Pengguna & Role
 
-| Role | Kemampuan |
-|---|---|
-| **Admin** | Semua + manajemen user, settings global, integrasi, audit |
-| **Manager** | Semua data operasional lintas engagement, approve rule request flow internal, kelola library |
-| **User (Operator)** | Engagement yang di-assign saja: catat timeline/oplog, findings, generate report, konfirmasi verdict |
+**Satu role: Admin.** Semua user terautentikasi = akses penuh (tim internal kecil,
+semua anggota dipercaya). Tidak ada tier manager/operator, tidak ada permission matrix,
+tidak ada flag granular.
 
-Auth: email/username + password + **MFA TOTP wajib untuk admin** (opsional lain),
-recovery codes. Service-to-service pakai API key scoped (untuk Sentinel nanti).
-Audit trail: semua mutasi penting tercatat (siapa, kapan, what-before/after ringkas).
+- Auth: email/username + password + **MFA TOTP wajib untuk SEMUA user**, recovery codes.
+- Service-to-service pakai API key scoped (untuk Sentinel nanti).
+- Audit trail tetap wajib: dengan multi-admin, semua mutasi penting tercatat
+  (siapa, kapan, before/after ringkas).
+- Konsep assignment operator ke engagement tetap ada — sebagai metadata kepemilikan/
+  penanggung jawab, bukan pembatasan akses.
 
 ## 3. Ruang Lingkup — Paritas Penuh, Dibagi Fase
 
@@ -42,12 +43,12 @@ Semua fitur v1 direplikasi + penambahan baru. Urutan fase mengikuti dependensi
 
 | # | Modul | Fase | Sumber referensi |
 |---|---|---|---|
-| M1 | Auth, User & RBAC | 0 | checklist §A |
-| M2 | Client & Engagement Management | 0 | checklist §A |
+| M1 | Auth, User & Audit | 0 | checklist §A |
+| M2 | Application & Engagement Management | 0 | checklist §A (Client → Application) |
 | M3 | Asset Inventory | 1 | modul native v1 |
-| M4 | Findings Library (+CVSS, tags, observation) | 1 | checklist §A |
+| M4 | Findings per Project (+CVSS, tags, observation) | 1 | checklist §A, dimodifikasi — lihat §5 M4 |
 | M5 | Operation Log (oplog grid) | 1 | checklist §A |
-| M6 | Reporting Engine (template, builder, generator DOCX/PPTX/XLSX, evidence, archive) | 2 | bagian tersulit — lihat §4.4 |
+| M6 | Reporting Engine (template HTML → PDF via headless Chromium, evidence, archive) | 2 | bagian tersulit — lihat §4.4 |
 | M7 | Purple Team Sync (timeline, verdict, matrix, gap report, rule request) | 2 | modul native v1 |
 | M8 | Dashboard Ops | 2 | design §6.1 |
 | M9 | Knowledge Base + backlink + graph | 3 | modul native v1 |
@@ -58,60 +59,65 @@ Semua fitur v1 direplikasi + penambahan baru. Urutan fase mengikuti dependensi
 | M14 | Tasks Kanban | 4 | design 5.10 |
 | M15 | Notifications (Slack/email) | 4 | |
 | M16 | Settings hub + Audit Log UI | 4 | design 5.11 / 5.13 |
-| M17 | Collab editor realtime (report narrative) | 5 | TipTap + Hocuspocus |
+
+*(Collab editor realtime dihapus dari scope — keputusan owner 2026-08-24.)*
 
 ## 4. Keputusan Arsitektur (final untuk v2)
 
 ### 4.1 Bentuk Aplikasi
 - **Satu repo, satu app:** Next.js App Router (TypeScript strict), frontend + API route
   handlers + Server Actions dalam satu deploy unit.
-- Proses pendamping dalam repo yang sama: `worker` (job runner pg-boss) dan
-  `collab` (Hocuspocus server) — dijalankan sebagai proses/kontainer terpisah.
+- Proses pendamping dalam repo yang sama: `worker` (job runner pg-boss) — dijalankan
+  sebagai proses/kontainer terpisah.
 
 ### 4.2 Data & Infrastruktur
 - **PostgreSQL 15 + pgvector.** ORM: **Prisma**. Migrasi: prisma migrate.
-- **Tanpa Redis, tanpa Hasura** (beda dari v1): job queue = **pg-boss** (tabel di
-  Postgres yang sama), realtime collab = WebSocket Hocuspocus.
-- File storage (evidence/template/avatar): local disk volume dengan interface abstrak
+- **Tanpa Redis, tanpa Hasura, tanpa server collab** (beda dari v1): job queue =
+  **pg-boss** (tabel di Postgres yang sama).
+- File storage (evidence/report/avatar): local disk volume dengan interface abstrak
   `StorageService` — swap ke S3-compatible tanpa ubah kode pemanggil.
-- Deployment: Docker Compose — kontainer: `postgres`, `app`, `worker`, `collab`.
+- Deployment: Docker Compose — kontainer: `postgres`, `app`, `worker`.
 
-### 4.3 Auth & RBAC
+### 4.3 Auth & Audit
 - **better-auth**: sesi httpOnly cookie, password hash argon2/bcrypt.
-- MFA: TOTP (otpauth) + recovery codes; wajib utk role admin.
-- RBAC: role enum + permission matrix per resource (mirror perilaku v1:
-  operator hanya melihat engagement yang di-assign; manager/admin global;
-  flag granular finding/observation/template management dipertahankan).
+- MFA: TOTP (otpauth) + recovery codes — **wajib untuk semua user**.
+- RBAC minimal: semua user terautentikasi = admin. Assignment ke engagement tetap
+  dicatat sebagai penanggung jawab (metadata), bukan pembatas akses.
 - Service API keys: tabel sendiri, scope read/write + resource scope, hash di DB.
+- Audit log append-only untuk semua mutasi entitas penting.
 
 ### 4.4 Reporting Engine (bagian tersulit — keputusan eksplisit)
 
-Kebutuhan paritas: operator upload **template Office ber-placeholder**, sistem isi
-dengan data engagement/finding/evidence → hasil DOCX/PPTX/XLSX siap unduh.
+**Output tunggal: PDF.** Tidak ada DOCX/PPTX/XLSX.
 
-| Format | Pendekatan v2 | Catatan |
-|---|---|---|
-| DOCX | **docxtemplater** (community core) — template .docx ber-tag `{placeholder}`/loop/condition | Paritas tertinggi dgn docxtpl v1; gambar evidence via image module (verifikasi lisensi saat scaffold) |
-| XLSX | **exceljs** — generate programatik dari data report | Template-based tidak diprioritaskan |
-| PPTX | **pptxgenjs** — generate programatik | ⚠ ceiling: tidak ada template-upload parity dgn python-pptx v1; layout dikodekan. Naikkan kalau kebutuhan nyata muncul |
+Pendekatan: **template report = komponen HTML/CSS (React)** → render via
+**headless Chromium (Playwright) print-to-PDF**.
 
-Kontrak internal: satu service `ReportGenerator.generate(reportId, format)` — input
-report snapshot (immutable copy of findings), output file stream + record Archive.
-Placeholder schema didokumentasikan (nama variabel, loop sections/findings/evidence).
+| Aspek | Keputusan |
+|---|---|
+| Template | Komponen React per jenis report (layout dikodekan, bukan upload file template) — placeholder = props biasa, full kontrol CSS |
+| Render | Playwright `page.pdf()` (kualitas print, font embed, page-break control) |
+| Data | Report snapshot immutable findings milik project → bind langsung ke komponen |
+| Evidence | Gambar inline via `<img>` dari StorageService |
+| Cover/TOC | Otomatis dari struktur section report |
+| Biaya | Image Docker app membawa Chromium (+~200MB); job generate jalan di `worker` agar tidak blokir app |
 
-### 4.5 Realtime Collab (M17)
-- TipTap di React + Hocuspocus server (`collab` proses) + dokumen disimpan ke Postgres
-  (snapshot periodik + on-close).
-- Auth: short-lived JWT kolaborasi diterbitkan route handler utama.
+Kelebihan vs pendekatan Office v1: satu pipeline untuk semua konten, styling bebas
+(pakai design tokens), tanpa lisensi pihak ketiga, placeholder logic = kode biasa.
+Trade-off yang diterima: tidak ada lagi "upload template .docx buatan sendiri" —
+perubahan desain report = ubah kode komponen (deploy).
 
-### 4.6 AI/RAG (M10)
+Kontrak internal: service `ReportGenerator.generate(reportId)` — input report +
+snapshot findings, output PDF stream + record Archive.
+
+### 4.5 AI/RAG (M10)
 - Embedding + chat completion via endpoint OpenAI-compatible (env-configurable,
   target LiteLLM proxy sama dgn Sentinel; model DeepSeek-class).
 - pgvector untuk similarity; chunk note saat save (job async); exclude-from-RAG flag.
 - UI "Ask the KB" menjawab dengan citation chip ke note sumber; sources tetap
   dikembalikan walau LLM tak dikonfigurasi.
 
-### 4.7 Integrasi Eksternal
+### 4.6 Integrasi Eksternal
 - **Sentinel (M12):** kontrak final 9 endpoint + aturan kredensial/idempotency/retry
   sudah final — lihat `integrations/api-reference.md`. Vanguard tidak pernah bicara
   langsung ke Wazuh. Push timeline = async job (outage Sentinel tak blokir operator).
@@ -124,20 +130,22 @@ Placeholder schema didokumentasikan (nama variabel, loop sections/findings/evide
 Format tiap modul: Tujuan · Fitur · Entitas · Halaman. Detail field lengkap mengikuti
 `data-model-reference.md` (semantik sama, nama bebas disesuaikan Prisma).
 
-### M1 Auth/User/RBAC
-- Fitur: login, logout, ganti password, enroll TOTP, recovery codes, CRUD user (admin),
-  assign role + flag granular, profil+avatar.
-- Entitas: User, Session, MfaFactor, RecoveryCode, ApiKey.
-- Halaman: `/login`, `/settings/account`, `/settings/security`, `/admin/users`.
+### M1 Auth/User/Audit
+- Fitur: login, logout, ganti password, enroll TOTP (wajib), recovery codes, CRUD user,
+  profil+avatar, audit log append-only.
+- Entitas: User, Session, MfaFactor, RecoveryCode, ApiKey, AuditLog.
+- Halaman: `/login`, `/settings/account`, `/settings/security`, `/settings/users`.
 
-### M2 Engagement Management
-- Fitur: CRUD client (+kontak), CRUD project/engagement (kode, tipe, periode, status),
-  assignment operator+role, objectives (+subtask), scope list, target list, notes,
-  deconfliction log, white card, invite link.
-- Entitas: Client, ClientContact, Project, ProjectAssignment, ProjectObjective,
-  ProjectSubTask, ProjectScope, ProjectTarget, Deconfliction, WhiteCard, Note.
-- Halaman: `/clients`, `/clients/[id]`, `/engagements`, `/engagements/[id]` (tab:
-  Overview | Assets | Findings | Timeline | Purple Team | Report) + header chips
+### M2 Application & Engagement Management
+- Fitur: CRUD **Application** (aplikasi internal yang jadi target pentest: nama,
+  deskripsi, repo URL, criticality, tim pemilik) menggantikan konsep Client v1;
+  CRUD project/engagement (kode, tipe, periode, status, FK application wajib);
+  penanggung jawab (assignment metadata), objectives (+subtask), scope list,
+  target list, notes, deconfliction log, white card.
+- Entitas: Application, Project, ProjectAssignment, ProjectObjective, ProjectSubTask,
+  ProjectScope, ProjectTarget, Deconfliction, WhiteCard, Note.
+- Halaman: `/applications`, `/applications/[id]`, `/engagements`, `/engagements/[id]`
+  (tab: Overview | Assets | Findings | Timeline | Purple Team | Report) + header chips
   (status, phase tracker rail, coverage %, open findings).
 
 ### M3 Asset Inventory
@@ -146,12 +154,15 @@ Format tiap modul: Tujuan · Fitur · Entitas · Halaman. Detail field lengkap m
   Sentinel ID (field siap).
 - Halaman: `/assets` + panel asset di tab engagement.
 
-### M4 Findings Library
-- Fitur: CRUD finding (title, severity, type, CVSS v3/v4 calculator, description,
-  mitigation, replication, network/host detection techniques, references, tags),
-  observation serupa, severity/type management (admin), library reusable lintas report,
-  export CSV.
-- Entitas: Finding, Observation, Severity, FindingType, Tag.
+### M4 Findings per Project
+- Fitur: CRUD finding yang **wajib terikat ke project** — langsung terlihat
+  "pentest ini untuk aplikasi apa" (via FK project → application). Field: title,
+  severity, type, CVSS v3/v4 calculator, description, mitigation, replication,
+  network/host detection techniques, references, tags. Observation serupa
+  (juga per project). Severity/type management. Export CSV per project.
+  *Tidak ada lagi library global lintas-project* — setiap finding lahir dan hidup
+  dalam konteks satu aplikasi target.
+- Entitas: Finding(project_id FK required), Observation, Severity, FindingType, Tag.
 
 ### M5 Oplog
 - Fitur: oplog per engagement, entry bulk-grid editor (inline add/edit/delete),
@@ -159,14 +170,13 @@ Format tiap modul: Tujuan · Fitur · Entitas · Halaman. Detail field lengkap m
 - Entitas: Oplog, OplogEntry, SanitizationRule.
 
 ### M6 Reporting Engine
-- Fitur: buat report dari engagement; tambahkan finding dari library (copy immutable)
-  atau blank; urutkan; evidence upload per report/finding; pilih template; generate
-  DOCX/PPTX/XLSX (async job, notifikasi selesai); archive + clone; deliver-letter;
-  history arsip.
-- Entitas: Report, ReportFinding (immutable copy), Evidence, ReportTemplate,
-  ArchivedReport.
-- Halaman: `/reports`, `/reports/[id]` (builder tab), `/reports/archive`,
-  `/templates`.
+- Fitur: buat report dari engagement; findings otomatis diambil dari project yang sama
+  (dipilih mana yang masuk); urutkan; evidence upload; edit narasi section (markdown);
+  generate **PDF** via async job (notifikasi selesai); archive + clone; history arsip.
+  Saat generate, nilai finding di-*snapshot* ke report agar dokumen terbit immutable.
+- Entitas: Report, ReportFinding (snapshot), Evidence, ArchivedReport.
+  *(ReportTemplate entity tidak ada — template = komponen React.)*
+- Halaman: `/reports`, `/reports/[id]` (builder tab), `/reports/archive`.
 
 ### M7 Purple Team Sync
 - Fitur: timeline entry CRUD (teknik ATT&CK, tactic, outcome, asset, timestamp,
@@ -216,31 +226,25 @@ Format tiap modul: Tujuan · Fitur · Entitas · Halaman. Detail field lengkap m
   rule-request status change, assignment.
 - Settings hub dua-kolom ala Grafana admin: Account, Security, Notifications,
   Integrations (Sentinel/AI Provider), Data Retention, Audit Log (searchable),
-  Users & Roles. Audit: append-only log actor/action/target/before/after.
-
-### M17 Collab Editor
-- Editor naratif report multi-user realtime (TipTap rich text), presence cursor,
-  autosave CRDT; dokumen per-report section. Terakhir di roadmap — bisa dievaluasi
-  ulang prioritasnya setelah M6 jalan.
+  Users.
 
 ## 6. Roadmap
 
 | Milestone | Isi | Keluaran uji |
 |---|---|---|
-| **M0** | Scaffold Next.js + Prisma + better-auth + CI lint/test + Docker Compose dev | login+RBAC dasar jalan |
-| **M1** | User mgmt + settings account/security | CRUD user + TOTP |
-| **M2** | Engagement management penuh | alur client→project→assignment |
+| **M0** | Scaffold Next.js + Prisma + better-auth + CI lint/test + Docker Compose dev | login + MFA jalan |
+| **M1** | User mgmt + settings account/security + audit log dasar | CRUD user + TOTP wajib |
+| **M2** | Application & engagement management penuh | alur application→project→assignment |
 | **M3** | Asset inventory | CRUD + link engagement |
-| **M4** | Findings library + observations | CRUD + CSV export |
+| **M4** | Findings per project + observations | CRUD + CSV export |
 | **M5** | Oplog grid | bulk edit + import/export |
-| **M6** | Reporting engine (DOCX dulu, lalu XLSX/PPTX) | generate end-to-end dari template |
+| **M6** | Reporting engine (HTML template → PDF via Playwright) | generate PDF end-to-end |
 | **M7** | Purple Team Sync lengkap (mock alert) | matrix+gap+drawer+lifecycle simulasi |
 | **M8** | Dashboard ops | panel hidup dgn data real |
 | **M9–M10** | KB + RAG | backlink/graph + Q&A citation |
 | **M11** | DeTT&CT | import + panel |
 | **M12** | Sentinel live | loop penuh submit→approve→deploy→verify |
 | **M13–M16** | Suricata, Kanban, Notifications, Settings/Audit | |
-| **M17** | Collab editor | multi-user realtime |
 
 Prinsip urutan: setiap milestone meninggalkan aplikasi yang usable; dashboard panel
 ditambah bertahap mengikuti data yang sudah ada.
@@ -254,20 +258,18 @@ ditambah bertahap mengikuti data yang sudah ada.
   engagement, finding→report generate, matrix verdict flow). Target: setiap modul punya
   minimal smoke test sebelum milestone ditutup.
 - **Performa:** tabel densitas tinggi → pagination + filter server-side; chart lazy.
-- **Deployment:** compose V2 (postgres/app/worker/collab); image Node slim; migrasi
-  otomatis on-deploy; backup pg_dump terjadwal.
+- **Deployment:** compose V2 (postgres/app/worker); image Node + Chromium (untuk PDF);
+  migrasi otomatis on-deploy; backup pg_dump terjadwal.
 
 ## 8. Open Questions
 
-1. **DOCX templating:** docxtemplater community + image module — verifikasi lisensi
-   modul gambar saat M6 dimulai; fallback = `docx` library programatik.
-2. **Collab editor (M17)** benar-benar dibutuhkan di MVP workflow, atau tunda sampai
-   semua modul inti selesai?
-3. **Suricata:** mode ingest apa (baca eve.json via path/watcher, syslog, webhook)?
+1. **Suricata:** mode ingest apa (baca eve.json via path/watcher, syslog, webhook)?
    Mapping alert↔technique bagaimana?
-4. **LLM provider final** (DeepSeek direct vs LiteLLM proxy) + kebijakan data-residency.
-5. **Nama domain/hosting target** deployment (VPS internal?) — mempengaruhi TLS & proxy.
-6. Bahasa UI: tetap English (seperti v1) atau bilingual?
+2. **LLM provider final** (DeepSeek direct vs LiteLLM proxy) + kebijakan data-residency.
+3. **Nama domain/hosting target** deployment (VPS internal?) — mempengaruhi TLS & proxy.
+4. Bahasa UI: tetap English (seperti v1) atau bilingual?
+5. **PDF layout report:** satu template generik untuk semua engagement, atau per jenis
+   assessment (web app / infra / API)?
 
 ---
 
@@ -275,5 +277,9 @@ ditambah bertahap mengikuti data yang sudah ada.
 lewat section changelog di bawah, review manual oleh owner.
 
 ## Changelog
+- 2026-08-24 (r2): Keputusan owner — role disederhanakan jadi Admin tunggal
+  (MFA TOTP wajib semua user); Reporting Engine output PDF saja via HTML+Chromium;
+  Findings wajib per-project; entitas Client diganti Application; collab editor
+  dihapus dari scope (TipTap/Hocuspocus keluar stack).
 - 2026-08-24: v2 awal — rewrite dari PRD v1 (Django/Ghostwriter) ke arsitektur
   Next.js fullstack monolith; paritas penuh fitur + Suricata sebagai modul baru.
