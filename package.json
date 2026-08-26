@@ -1,0 +1,55 @@
+{
+  "name": "vanguard-v2",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "worker": "tsx --env-file=.env worker/index.ts",
+    "worker:dev": "tsx watch --env-file=.env worker/index.ts",
+    "smoke:report": "tsx --env-file=.env scripts/smoke-report.ts",
+    "smoke:matrix": "tsx --env-file=.env scripts/smoke-matrix.ts",
+    "smoke:kb": "tsx --env-file=.env scripts/smoke-kb.ts",
+    "lint": "eslint src worker",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "tsx scripts/seed-admin.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "better-auth": "^1.2.7",
+    "lucide-react": "^0.503.0",
+    "marked": "^18.0.11",
+    "next": "^15.3.1",
+    "nodemailer": "^6.10.1",
+    "pg-boss": "^10.2.2",
+    "playwright": "^1.62.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "recharts": "^3.10.1",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.4",
+    "@types/marked": "^5.0.2",
+    "@types/node": "^22.14.1",
+    "@types/nodemailer": "^6.4.17",
+    "@types/react": "^19.1.1",
+    "@types/react-dom": "^19.1.2",
+    "eslint": "^9.25.1",
+    "prisma": "^6.5.0",
+    "tailwindcss": "^4.1.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.31.0",
+    "vitest": "^3.1.2"
+  },
+  "allowScripts": {
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "sharp@0.34.5": true
+  }
+}
