@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+/* Fonts resolved from next/font variables */
+@theme inline {
+  --font-display: var(--font-inter-tight), sans-serif;
+  --font-sans: var(--font-inter), sans-serif;
+  --font-mono: var(--font-jetbrains-mono), monospace;
+}
+
+/* Obsidian Red Team Console tokens (docs/design-system.md §2–§4) */
+@theme {
+  --color-base: #0b0d10;
+  --color-canvas: #0f1217;
+  --color-panel: #11151a;
+  --color-raised: #181d24;
+  --color-hover: #1d232c;
+  --color-active: #202832;
+
+  --color-line-subtle: #27303a;
+  --color-line-default: #303a46;
+  --color-line-strong: #3d4856;
+
+  --color-fg-primary: #e6eaf0;
+  --color-fg-secondary: #9aa4b2;
+  --color-fg-muted: #66707e;
+  --color-fg-disabled: #454d58;
+
+  --color-signal: #e5484d;
+  --color-signal-dim: #351a1d;
+  --color-teal: #35b7a0;
+  --color-teal-dim: #16332f;
+  --color-amber: #d9a441;
+  --color-amber-dim: #352b18;
+  --color-blue: #5b8def;
+  --color-blue-dim: #18253d;
+  --color-violet: #8b7fe8;
+  --color-violet-dim: #24203d;
+  --color-sev-high: #e8654d;
+  --color-sev-low: #d9c24a;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 1px;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-fg-primary);
+}
+
+/* design-system §4: panel density needs the room */
+.app-canvas {
+  max-width: 1600px;
+  margin-inline: auto;
+  width: 100%;
+}
+
+/* design-system §7: honour prefers-reduced-motion — keep only opacity fades */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.25;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--color-signal);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #f05a5f;
+  }
+  .btn-secondary {
+    background: transparent;
+    border-color: var(--color-line-strong);
+    color: var(--color-fg-secondary);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--color-hover);
+    color: var(--color-fg-primary);
+  }
+  .btn-danger {
+    background: transparent;
+    border-color: var(--color-signal);
+    color: var(--color-signal);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--color-signal);
+    color: #fff;
+  }
+  .btn-teal {
+    background: var(--color-teal);
+    color: #06251f;
+  }
+  .btn-teal:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+
+  .input {
+    width: 100%;
+    background: var(--color-base);
+    border: 1px solid var(--color-line-default);
+    border-radius: var(--radius-sm);
+    padding: 7px 10px;
+    font-size: 13px;
+    color: var(--color-fg-primary);
+  }
+  .input::placeholder {
+    color: var(--color-fg-muted);
+  }
+  .label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-fg-muted);
+    margin-bottom: 4px;
+  }
+
+  /* Dense Grafana-style table */
+  .table-dense {
+    width: 100%;
+    font-size: 13px;
+    border-collapse: collapse;
+  }
+  .table-dense th {
+    position: sticky;
+    top: 0;
+    background: var(--color-raised);
+    color: var(--color-fg-muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-subtle, var(--color-line-subtle));
+    white-space: nowrap;
+  }
+  .table-dense td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-line-subtle);
+    color: var(--color-fg-secondary);
+    vertical-align: top;
+  }
+  .table-dense tbody tr:hover {
+    background: var(--color-hover);
+  }
+}
