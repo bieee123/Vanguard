@@ -29,7 +29,7 @@ export default async function NewReportPage({
     <div className="space-y-4">
       <h1 className="font-display text-xl font-semibold">New Report</h1>
       <Panel>
-        <form action={createReport} className="max-w-2xl space-y-3">
+        <form action={createReport} className="space-y-3">
           <div>
             <label className="label" htmlFor="projectId">
               Engagement *

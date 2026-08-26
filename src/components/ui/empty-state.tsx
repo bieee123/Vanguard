@@ -7,7 +7,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-md border border-line-subtle bg-panel px-6 py-12 text-center">
-      <p className="max-w-sm text-sm text-fg-secondary">{message}</p>
+      <p className="text-sm text-fg-secondary">{message}</p>
       {action}
     </div>
   );

@@ -59,7 +59,7 @@ export function SecurityClient({ enabled }: { enabled: boolean }) {
   }
 
   return (
-    <div className="max-w-xl space-y-4">
+    <div className="space-y-4">
       {msg && (
         <div className={`rounded-sm px-3 py-2 text-xs ${msg.ok ? "bg-teal-dim text-teal" : "bg-signal-dim text-signal"}`}>
           {msg.text}

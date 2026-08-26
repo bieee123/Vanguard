@@ -62,7 +62,7 @@ export function NoteEditor({ initialBody }: { initialBody: string }) {
         onChange={(e) => onChange(e.target.value)}
       />
       {suggestions.length > 0 && (
-        <ul className="absolute z-10 mt-1 w-full max-w-sm overflow-hidden rounded-sm border border-line-default bg-raised shadow-lg">
+        <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-sm border border-line-default bg-raised shadow-lg">
           {suggestions.map((s) => (
             <li key={s.id}>
               <button

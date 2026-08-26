@@ -23,7 +23,7 @@ export default async function EngagementEditPage({
       </div>
 
       <Panel title="Edit Engagement">
-        <form action={updateEngagement} className="max-w-xl space-y-3">
+        <form action={updateEngagement} className="space-y-3">
           <input type="hidden" name="id" value={project.id} />
           <div>
             <label className="label" htmlFor="name">

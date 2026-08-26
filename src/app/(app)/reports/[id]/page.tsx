@@ -199,7 +199,7 @@ export default async function ReportBuilderPage({ params }: { params: Promise<{ 
 
       {/* Meta edit */}
       <Panel title="Narrative & Metadata">
-        <form action={updateReport} className="max-w-2xl space-y-3">
+        <form action={updateReport} className="space-y-3">
           <input type="hidden" name="id" value={report.id} />
           <div>
             <label className="label" htmlFor="title">

@@ -55,6 +55,22 @@ export default async function RuleRequestsPage({
         </form>
       </div>
 
+      {/* purpose explainer (design §6.5) */}
+      <div className="rounded-md border border-line-subtle bg-panel p-4 text-xs leading-relaxed text-fg-secondary">
+        <p>
+          Detection gaps become <span className="text-fg-primary">rule requests</span>: proposed Wazuh rules sent to
+          Sentinel for review. Lifecycle:{" "}
+          <span className="font-mono">draft → pending_review → approved → deployed → verified</span> (rejected branch
+          from review). You can only <span className="text-fg-primary">Submit</span> a draft and{" "}
+          <span className="text-fg-primary">Verify</span> after a retest — approve/deploy happen on the Sentinel side,
+          simulated here with the SIM buttons until M12 goes live. Create drafts from the{" "}
+          <Link href="/attack-matrix" className="text-blue hover:underline">
+            Gap Report
+          </Link>
+          .
+        </p>
+      </div>
+
       {/* ponytail: single-column list instead of detail pages — every card fits one screen; split when fields grow */}
       {requests.length === 0 && (
         <Panel>

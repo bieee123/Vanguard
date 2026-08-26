@@ -37,7 +37,7 @@ interface FindingFormProps {
 /** Shared create/edit form for a finding. CVSS calculator is the only client island. */
 export function FindingForm({ action, findingId, finding, projectId, types, currentTags = [], submitLabel }: FindingFormProps) {
   return (
-    <form action={action} className="max-w-3xl space-y-4">
+    <form action={action} className="space-y-4">
       <input type="hidden" name="projectId" value={projectId} />
       {findingId && <input type="hidden" name="id" value={findingId} />}
       <div className="flex gap-3 items-end">

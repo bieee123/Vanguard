@@ -10,7 +10,7 @@ export default function NewAssetPage() {
     <div className="space-y-4">
       <h1 className="font-display text-xl font-semibold">New Asset</h1>
       <Panel>
-        <form action={createAsset} className="max-w-xl space-y-3">
+        <form action={createAsset} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="hostname">

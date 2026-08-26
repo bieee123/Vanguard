@@ -9,7 +9,7 @@ export default async function AccountPage() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Profile">
-        <form action={updateProfile} className="max-w-sm space-y-3">
+        <form action={updateProfile} className="space-y-3">
           <div>
             <label className="label" htmlFor="name">
               Display name

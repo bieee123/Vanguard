@@ -178,7 +178,7 @@ export default async function FindingsPage({
               {findings.map((f) => (
                 <tr key={f.id}>
                   <td className="font-mono text-xs">{f.project.code}</td>
-                  <td className="max-w-sm truncate font-medium text-fg-primary">
+                  <td className="truncate font-medium text-fg-primary">
                     <Drawer
                       label={f.title}
                       triggerClass="hover:text-blue hover:underline block w-full truncate"

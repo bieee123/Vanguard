@@ -47,7 +47,7 @@ export async function TimelineEntryForm({ projectId }: { projectId?: string }) {
         </div>
       )}
 
-      <div className="grid max-w-4xl grid-cols-[10rem_12rem_12rem_12rem] gap-3">
+      <div className="grid grid-cols-[10rem_12rem_12rem_12rem] gap-3">
         <div>
           <label className="label">Technique ID</label>
           <input name="techniqueId" className="input font-mono" placeholder="T1059.001" />
@@ -78,13 +78,13 @@ export async function TimelineEntryForm({ projectId }: { projectId?: string }) {
         </div>
       </div>
 
-      <div className="max-w-4xl">
+      <div className="">
         <label className="label">Action *</label>
         <input name="actionDescription" required className="input" placeholder="Dumped LSASS on WEB-01 via custom tooling" />
       </div>
 
       {/* oplog replacement: optional technical trace fields (PRD r3 changelog) */}
-      <div className="grid max-w-4xl grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label">Command (optional)</label>
           <input name="command" className="input font-mono text-xs" placeholder="rundll32 comsvcs.dll MiniDump ..." />
@@ -95,7 +95,7 @@ export async function TimelineEntryForm({ projectId }: { projectId?: string }) {
         </div>
       </div>
 
-      <div className="flex max-w-4xl items-end gap-3">
+      <div className="flex items-end gap-3">
         <div className="w-40">
           <label className="label">Outcome</label>
           <select name="outcome" className="input" defaultValue="success">

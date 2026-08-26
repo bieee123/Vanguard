@@ -104,7 +104,7 @@ export default async function TimelinePage({
                     <summary className="cursor-pointer text-[11px] text-fg-muted hover:text-fg-secondary">
                       detail & verdict
                     </summary>
-                    <div className="mt-2 max-w-xl space-y-2 rounded-sm bg-raised p-3 text-xs">
+                    <div className="mt-2 space-y-2 rounded-sm bg-raised p-3 text-xs">
                       {e.command && (
                         <p className="break-all font-mono text-fg-primary">$ {e.command}</p>
                       )}

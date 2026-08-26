@@ -65,7 +65,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
       </Panel>
 
       <Panel title="Edit Asset">
-        <form action={updateAsset} className="max-w-2xl space-y-3">
+        <form action={updateAsset} className="space-y-3">
           <input type="hidden" name="id" value={asset.id} />
           <div className="grid grid-cols-2 gap-3">
             <div>

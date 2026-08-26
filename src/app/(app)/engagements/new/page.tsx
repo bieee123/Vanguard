@@ -30,7 +30,7 @@ export default async function NewEngagementPage() {
         />
       ) : (
         <Panel>
-          <form action={createEngagement} className="max-w-xl space-y-3">
+          <form action={createEngagement} className="space-y-3">
             <div>
               <label className="label" htmlFor="applicationId">
                 Application *

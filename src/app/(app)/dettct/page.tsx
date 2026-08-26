@@ -27,6 +27,11 @@ export default async function DettctPage() {
         title="Import snapshot"
         description="DeTT&CT runs externally (cron/sidecar) and writes YAML. Upload the file or point at the path."
       >
+        <p className="mb-3 text-xs leading-relaxed text-fg-secondary">
+          DeTT&CT measures long-term detection coverage outside live operations. Import its YAML here to compare
+          scheduled-coverage against the live purple-team data in the ATT&amp;CK Matrix — nothing else in Vanguard is
+          modified. After import, the latest snapshot below becomes the panel shown under the Matrix gap table.
+        </p>
         <form action={importDettctRun} className="flex flex-wrap items-end gap-3">
           <div>
             <label className="label" htmlFor="file">

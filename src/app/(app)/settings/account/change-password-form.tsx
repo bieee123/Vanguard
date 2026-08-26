@@ -30,7 +30,7 @@ export function ChangePasswordForm() {
   }
 
   return (
-    <form onSubmit={submit} className="max-w-sm space-y-3">
+    <form onSubmit={submit} className="space-y-3">
       {msg && (
         <div className={`rounded-sm px-3 py-2 text-xs ${msg.ok ? "bg-teal-dim text-teal" : "bg-signal-dim text-signal"}`}>
           {msg.text}

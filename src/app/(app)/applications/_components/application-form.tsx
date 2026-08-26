@@ -6,7 +6,7 @@ const CRITICALITIES = ["critical", "high", "medium", "low"] as const;
 export function ApplicationForm({ application }: { application?: Application }) {
   const isEdit = Boolean(application);
   return (
-    <form action={isEdit ? updateApplication : createApplication} className="space-y-3 max-w-xl">
+    <form action={isEdit ? updateApplication : createApplication} className="space-y-3">
       {application && <input type="hidden" name="id" value={application.id} />}
       <div>
         <label className="label" htmlFor="name">
