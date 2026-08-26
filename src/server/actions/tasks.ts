@@ -1,9 +1,10 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
+import { flashErr, flashOk } from "@/lib/flash";
 
 function str(fd: FormData, key: string): string | null {
   const v = fd.get(key);
@@ -16,7 +17,7 @@ export async function createTask(fd: FormData) {
   const { user } = await requireUser();
   const projectId = str(fd, "projectId");
   const title = str(fd, "title");
-  if (!projectId || !title) throw new Error("Engagement and title are required");
+  if (!projectId || !title) flashErr("/tasks", "Engagement and title are required");
 
   const agg = await prisma.task.aggregate({ _max: { order: true }, where: { projectId } });
   const task = await prisma.task.create({
@@ -31,7 +32,7 @@ export async function createTask(fd: FormData) {
         const d = str(fd, "dueDate");
         return d ? new Date(d) : null;
       })(),
-      // ponytail: new cards always append to their column — fine-grain reorder only if it annoys
+      // ponytail: new cards always append to their column â€” fine-grain reorder only if it annoys
       order: (agg._max.order ?? 0) + 1,
     },
   });
@@ -42,15 +43,15 @@ export async function createTask(fd: FormData) {
     resourceId: task.id,
     details: { projectId, title },
   });
-  revalidatePath("/tasks");
-  revalidatePath(`/engagements/${projectId}`);
+  revalidatePath("/tasks?project="+projectId);
+  flashOk("/tasks?project="+projectId, "Task added");
 }
 
 export async function moveTask(fd: FormData) {
   const { user } = await requireUser();
   const id = str(fd, "id");
   const status = str(fd, "status");
-  if (!id || !status || !STATUSES.includes(status as never)) throw new Error("Missing fields");
+  if (!id || !status || !STATUSES.includes(status as never)) return;
 
   const before = await prisma.task.findUniqueOrThrow({ where: { id } });
   if (before.status !== status) {
@@ -70,13 +71,13 @@ export async function moveTask(fd: FormData) {
       details: { before: before.status, after: status },
     });
   }
-  revalidatePath("/tasks");
+  flashOk("/tasks?project=" + before.projectId, "Task moved");
 }
 
 export async function deleteTask(fd: FormData) {
   const { user } = await requireUser();
   const id = fd.get("id") as string;
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/tasks", "Missing id");
   const task = await prisma.task.delete({ where: { id } });
   await audit({
     userId: user.id,
@@ -85,5 +86,5 @@ export async function deleteTask(fd: FormData) {
     resourceId: id,
     details: { title: task.title, projectId: task.projectId },
   });
-  revalidatePath("/tasks");
+  flashOk("/tasks?project="+task.projectId, "Task deleted");
 }

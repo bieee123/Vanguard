@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
+import { FlashMessage } from "@/components/ui/flash";
 import { requireUser } from "@/lib/session";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -11,6 +13,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Topbar userName={user.name} />
         <main className="app-canvas min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
       </div>
+      <Suspense>
+        <FlashMessage />
+      </Suspense>
     </div>
   );
 }

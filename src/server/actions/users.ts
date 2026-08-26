@@ -1,36 +1,44 @@
-"use server";
+﻿"use server";
 
-import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
+import { flashErr, flashOk } from "@/lib/flash";
 
-function str(fd: FormData, key: string): string {
+const BACK = "/settings/users";
+
+function str(fd: FormData, key: string, back = BACK): string {
   const v = fd.get(key);
   const s = typeof v === "string" ? v.trim() : "";
-  if (!s) throw new Error(`${key} is required`);
+  if (!s) flashErr(back, `${key} is required`);
   return s;
 }
 
 export async function adminCreateUser(fd: FormData) {
   const { user } = await requireUser();
-  const created = await auth.api.createUser({
-    body: {
-      email: str(fd, "email"),
-      password: str(fd, "password"),
-      name: str(fd, "name"),
-      // role defaults to admin via plugin config (PRD v2: single Admin role)
-    },
-    headers: await headers(),
-  });
-  // ponytail: username set via direct write — admin createUser endpoint doesn't take plugin fields
+  let created: Awaited<ReturnType<typeof auth.api.createUser>>["user"] | undefined;
+  try {
+    created = (
+      await auth.api.createUser({
+        body: {
+          email: str(fd, "email"),
+          password: str(fd, "password"),
+          name: str(fd, "name"),
+        },
+        headers: await headers(),
+      })
+    )?.user;
+  } catch (e) {
+    flashErr(BACK, e instanceof Error ? e.message : "Failed to create user");
+  }
+  // role defaults to admin via plugin config (PRD v2: single Admin role)
   const raw = fd.get("username");
   const username = typeof raw === "string" ? raw.trim() : "";
-  if (created?.user && username) {
+  if (created && username) {
     await prisma.user.update({
-      where: { id: created.user.id },
+      where: { id: created.id },
       data: { username: username.toLowerCase(), displayUsername: username },
     });
   }
@@ -38,41 +46,44 @@ export async function adminCreateUser(fd: FormData) {
     userId: user.id,
     action: "create",
     resourceType: "user",
-    resourceId: created?.user.id,
-    details: { email: created?.user.email, username: username || null },
+    resourceId: created?.id ?? null,
+    details: { email: created?.email, username: username || null },
   });
-  revalidatePath("/settings/users");
+  flashOk(BACK, `User ${created?.email ?? ""} created`);
 }
 
 export async function adminResetPassword(fd: FormData) {
   const { user } = await requireUser();
   const userId = str(fd, "userId");
-  await auth.api.setUserPassword({
-    body: { userId, newPassword: str(fd, "newPassword") },
-    headers: await headers(),
-  });
-  await audit({
-    userId: user.id,
-    action: "reset_password",
-    resourceType: "user",
-    resourceId: userId,
-  });
-  revalidatePath("/settings/users");
+  try {
+    await auth.api.setUserPassword({
+      body: { userId, newPassword: str(fd, "newPassword") },
+      headers: await headers(),
+    });
+  } catch (e) {
+    flashErr(BACK, e instanceof Error ? e.message : "Reset failed");
+  }
+  await audit({ userId: user.id, action: "reset_password", resourceType: "user", resourceId: userId });
+  flashOk(BACK, "Password reset");
 }
 
 export async function adminRemoveUser(fd: FormData) {
   const current = await requireUser();
   const userId = str(fd, "userId");
-  if (userId === current.user.id) throw new Error("You cannot remove your own account");
+  if (userId === current.user.id) flashErr(BACK, "You cannot remove your own account");
 
-  await auth.api.removeUser({ body: { userId }, headers: await headers() });
+  try {
+    await auth.api.removeUser({ body: { userId }, headers: await headers() });
+  } catch (e) {
+    flashErr(BACK, e instanceof Error ? e.message : "Remove failed");
+  }
   await audit({ userId: current.user.id, action: "delete", resourceType: "user", resourceId: userId });
-  revalidatePath("/settings/users");
+  flashOk(BACK, "User removed");
 }
 
 export async function updateProfile(fd: FormData) {
   const { user } = await requireUser();
-  const name = str(fd, "name");
+  const name = str(fd, "name", "/settings/account");
   await prisma.user.update({ where: { id: user.id }, data: { name } });
   await audit({
     userId: user.id,
@@ -81,5 +92,5 @@ export async function updateProfile(fd: FormData) {
     resourceId: user.id,
     details: { before: { name: user.name }, after: { name } },
   });
-  revalidatePath("/settings/account");
+  flashOk("/settings/account", "Profile saved");
 }

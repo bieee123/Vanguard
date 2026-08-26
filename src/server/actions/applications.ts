@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
+import { flashErr, flashOk } from "@/lib/flash";
 
 function str(fd: FormData, key: string): string | null {
   const v = fd.get(key);
@@ -14,7 +14,7 @@ function str(fd: FormData, key: string): string | null {
 export async function createApplication(fd: FormData) {
   const { user } = await requireUser();
   const name = str(fd, "name");
-  if (!name) throw new Error("Name is required");
+  if (!name) flashErr("/applications/new", "Name is required");
 
   const app = await prisma.application.create({
     data: {
@@ -33,14 +33,14 @@ export async function createApplication(fd: FormData) {
     details: { name },
   });
   revalidatePath("/applications");
-  redirect(`/applications/${app.id}`);
+  flashOk(`/applications/${app.id}`, "Application created");
 }
 
 export async function updateApplication(fd: FormData) {
   const { user } = await requireUser();
   const id = fd.get("id") as string;
   const name = str(fd, "name");
-  if (!name || !id) throw new Error("Missing fields");
+  if (!name || !id) flashErr("/applications", "Missing fields");
 
   const before = await prisma.application.findUniqueOrThrow({ where: { id } });
   await prisma.application.update({
@@ -60,7 +60,8 @@ export async function updateApplication(fd: FormData) {
     resourceId: id,
     details: { before: { name: before.name }, after: { name } },
   });
-  revalidatePath(`/applications/${id}`);
+  revalidatePath("/applications");
+  flashOk(`/applications/${id}`, "Saved");
 }
 
 export async function deleteApplication(fd: FormData) {
@@ -72,9 +73,8 @@ export async function deleteApplication(fd: FormData) {
     await prisma.application.delete({ where: { id } });
   } catch {
     // FK Restrict: application still has projects
-    throw new Error("Cannot delete an application that still has engagements");
+    flashErr("/applications", "Cannot delete an application that still has engagements");
   }
   await audit({ userId: user.id, action: "delete", resourceType: "application", resourceId: id });
-  revalidatePath("/applications");
-  redirect("/applications");
+  flashOk("/applications", "Application deleted");
 }

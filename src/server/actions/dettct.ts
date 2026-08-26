@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { readFile } from "@/lib/storage";
@@ -6,6 +6,7 @@ import { saveFile } from "@/lib/storage";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
+import { flashErr, flashOk } from "@/lib/flash";
 import { parseDettctYaml } from "@/lib/dettct";
 
 function str(fd: FormData, key: string): string | null {
@@ -32,7 +33,7 @@ export async function importDettctRun(fd: FormData) {
     storedKey = `dettct/${crypto.randomUUID()}.yaml`;
     saveFile(storedKey, Buffer.from(await file.arrayBuffer()));
   } else if (pathInput) {
-    // ponytail: direct fs read of an operator-provided path — trusted internal tool
+    // ponytail: direct fs read of an operator-provided path â€” trusted internal tool
     try {
       source = readFile(pathInput)?.toString("utf8") ?? null;
     } catch {
@@ -40,9 +41,14 @@ export async function importDettctRun(fd: FormData) {
     }
     storedKey = pathInput;
   }
-  if (!source) throw new Error("Provide a YAML upload or a readable path");
+  if (!source) flashErr("/dettct", "Provide a YAML upload or a readable path");
 
-  const snap = parseDettctYaml(source);
+  let snap;
+  try {
+    snap = parseDettctYaml(source);
+  } catch (e) {
+    flashErr("/dettct", e instanceof Error ? e.message : "Invalid YAML");
+  }
   const yamlDate = snap.runAt;
   if (!Number.isNaN(yamlDate.getTime())) runAt = yamlDate;
 
@@ -63,4 +69,5 @@ export async function importDettctRun(fd: FormData) {
     details: { covered: `${snap.covered}/${snap.total}`, name: snap.name },
   });
   revalidatePath("/dettct");
+  flashOk("/dettct", `Imported: ${snap.covered}/${snap.total} techniques covered`);
 }

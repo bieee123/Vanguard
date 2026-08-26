@@ -1,10 +1,9 @@
-"use server";
+﻿"use server";
 
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
+import { flashErr, flashOk } from "@/lib/flash";
 import { nextEngagementCode } from "@/lib/engagement-code";
 
 function str(fd: FormData, key: string): string | null {
@@ -20,9 +19,9 @@ export async function createEngagement(fd: FormData) {
   const { user } = await requireUser();
   const name = str(fd, "name");
   const applicationId = str(fd, "applicationId");
-  if (!name || !applicationId) throw new Error("Name and application are required");
+  if (!name || !applicationId) flashErr("/engagements/new", "Name and application are required");
 
-  // ponytail: code from row count — fine for a single admin team; switch to a sequence if codes must stay gapless under concurrency
+  // ponytail: code from row count â€” fine for a single admin team; switch to a sequence if codes must stay gapless under concurrency
   const count = await prisma.project.count();
   const project = await prisma.project.create({
     data: {
@@ -43,8 +42,7 @@ export async function createEngagement(fd: FormData) {
     resourceId: project.id,
     details: { code: project.code, name },
   });
-  revalidatePath("/engagements");
-  redirect(`/engagements/${project.id}`);
+  flashOk(`/engagements/${project.id}`, "Engagement created");
 }
 
 export async function updateEngagement(fd: FormData) {
@@ -87,8 +85,7 @@ export async function updateEngagement(fd: FormData) {
       details: { before: before.phase, after: phase },
     });
   }
-  revalidatePath(`/engagements/${id}`);
-  revalidatePath("/engagements");
+  flashOk(`/engagements/${id}`, "Saved");
 }
 
 export async function deleteEngagement(fd: FormData) {
@@ -104,6 +101,5 @@ export async function deleteEngagement(fd: FormData) {
     resourceId: id,
     details: { code: project.code },
   });
-  revalidatePath("/engagements");
-  redirect("/engagements");
+  flashOk("/engagements", "Engagement deleted");
 }

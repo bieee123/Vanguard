@@ -1,10 +1,11 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
+import { flashErr, flashOk } from "@/lib/flash";
 import { enqueueNoteEmbedding } from "@/server/reporting/producer";
 import { extractWikiLinks } from "@/lib/wiki";
 
@@ -44,7 +45,7 @@ async function syncLinksAndTags(
 export async function createNote(fd: FormData) {
   const { user } = await requireUser();
   const title = str(fd, "title");
-  if (!title) throw new Error("Title is required");
+  if (!title) flashErr("/kb/new", "Title is required");
 
   const note = await prisma.note.create({
     data: {
@@ -64,8 +65,7 @@ export async function createNote(fd: FormData) {
     resourceId: note.id,
     details: { title },
   });
-  revalidatePath("/kb");
-  redirect(`/kb/${note.id}`);
+  flashOk(`/kb/${note.id}`, "Note created");
 }
 
 function listTags(fd: FormData): string[] {
@@ -76,7 +76,7 @@ function listTags(fd: FormData): string[] {
 export async function updateNote(fd: FormData) {
   const { user } = await requireUser();
   const id = fd.get("id") as string;
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/kb", "Missing id");
 
   const bodyMarkdown = (fd.get("bodyMarkdown") as string | null) ?? "";
   await prisma.note.update({
@@ -91,14 +91,14 @@ export async function updateNote(fd: FormData) {
   await syncLinksAndTags(id, bodyMarkdown, listTags(fd));
   await enqueueNoteEmbedding(id);
   await audit({ userId: user.id, action: "update", resourceType: "note", resourceId: id });
-  revalidatePath(`/kb/${id}`);
+  flashOk(`/kb/${id}`, "Note saved");
   revalidatePath("/kb");
 }
 
 export async function deleteNote(fd: FormData) {
   const { user } = await requireUser();
   const id = fd.get("id") as string;
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/kb", "Missing id");
   const note = await prisma.note.delete({ where: { id } });
   await audit({
     userId: user.id,

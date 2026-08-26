@@ -1,10 +1,10 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
+import { flashErr, flashOk } from "@/lib/flash";
 
 function str(fd: FormData, key: string): string | null {
   const v = fd.get(key);
@@ -36,7 +36,7 @@ export async function createFinding(fd: FormData) {
   const { user } = await requireUser();
   const projectId = str(fd, "projectId");
   const title = str(fd, "title");
-  if (!projectId || !title) throw new Error("Project and title are required");
+  if (!projectId || !title) flashErr("/findings/new?project="+projectId, "Project and title are required");
 
   const finding = await prisma.finding.create({
     data: {
@@ -65,15 +65,13 @@ export async function createFinding(fd: FormData) {
     resourceId: finding.id,
     details: { projectId, title, severity: finding.severity },
   });
-  revalidatePath("/findings");
-  revalidatePath(`/engagements/${projectId}`);
-  redirect(`/findings/${finding.id}`);
+  flashOk(`/findings/${finding.id}`, "Finding created");
 }
 
 export async function updateFinding(fd: FormData) {
   const { user } = await requireUser();
   const id = fd.get("id") as string;
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/findings", "Missing id");
 
   const before = await prisma.finding.findUniqueOrThrow({ where: { id } });
   const tagNames = list(fd, ["tags"]);
@@ -107,15 +105,14 @@ export async function updateFinding(fd: FormData) {
     resourceId: id,
     details: { before: { severity: before.severity, status: before.status } },
   });
-  revalidatePath(`/findings/${id}`);
-  revalidatePath(`/engagements/${before.projectId}`);
+  flashOk(/findings/+id, "Saved");
 }
 
 export async function setFindingStatus(fd: FormData) {
   const { user } = await requireUser();
   const id = str(fd, "id");
   const status = str(fd, "status");
-  if (!id || !status) throw new Error("Missing fields");
+  if (!id || !status) flashErr("/findings", "Missing fields");
   await prisma.finding.update({ where: { id }, data: { status: status as never } });
   await audit({
     userId: user.id,
@@ -124,14 +121,13 @@ export async function setFindingStatus(fd: FormData) {
     resourceId: id,
     details: { after: status },
   });
-  revalidatePath(`/findings/${id}`);
-  revalidatePath("/findings");
+  flashOk(/findings/+id, "Status updated");
 }
 
 export async function deleteFinding(fd: FormData) {
   const { user } = await requireUser();
   const id = fd.get("id") as string;
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/findings", "Missing id");
   const finding = await prisma.finding.delete({ where: { id } });
   await audit({
     userId: user.id,
@@ -142,16 +138,16 @@ export async function deleteFinding(fd: FormData) {
   });
   revalidatePath("/findings");
   revalidatePath(`/engagements/${finding.projectId}`);
-  redirect("/findings");
+  flashOk("/findings", "Finding deleted");
 }
 
-// ── Finding ↔ asset links ────────────────────────────────────────────
+// â”€â”€ Finding â†” asset links â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function linkFindingAsset(fd: FormData) {
   const { user } = await requireUser();
   const findingId = str(fd, "findingId");
   const assetId = str(fd, "assetId");
-  if (!findingId || !assetId) throw new Error("Missing fields");
+  if (!findingId || !assetId) flashErr("/findings", "Missing fields");
   await prisma.findingAsset.create({ data: { findingId, assetId } }).catch(() => {});
   await audit({
     userId: user.id,
@@ -160,14 +156,14 @@ export async function linkFindingAsset(fd: FormData) {
     resourceId: findingId,
     details: { assetId },
   });
-  revalidatePath(`/findings/${findingId}`);
+  flashOk(`/findings/${findingId}`, "Asset linked");
 }
 
 export async function unlinkFindingAsset(fd: FormData) {
   const { user } = await requireUser();
   const findingId = str(fd, "findingId");
   const assetId = str(fd, "assetId");
-  if (!findingId || !assetId) throw new Error("Missing fields");
+  if (!findingId || !assetId) flashErr("/findings", "Missing fields");
   await prisma.findingAsset.delete({
     where: { findingId_assetId: { findingId, assetId } },
   });
@@ -178,16 +174,16 @@ export async function unlinkFindingAsset(fd: FormData) {
     resourceId: findingId,
     details: { assetId },
   });
-  revalidatePath(`/findings/${findingId}`);
+  flashOk(`/findings/${findingId}`, "Asset unlinked");
 }
 
-// ── Observations (per project, non-actionable) ───────────────────────
+// â”€â”€ Observations (per project, non-actionable) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function createObservation(fd: FormData) {
   const { user } = await requireUser();
   const projectId = str(fd, "projectId");
   const title = str(fd, "title");
-  if (!projectId || !title) throw new Error("Project and title are required");
+  if (!projectId || !title) flashErr("/engagements", "Project and title are required");
   const obs = await prisma.observation.create({
     data: {
       projectId,
@@ -203,24 +199,24 @@ export async function createObservation(fd: FormData) {
     resourceId: obs.id,
     details: { projectId, title },
   });
-  revalidatePath(`/engagements/${projectId}`);
+  flashOk(`/engagements/${projectId}`, "Observation added");
 }
 
 export async function deleteObservation(fd: FormData) {
   const { user } = await requireUser();
   const id = str(fd, "id");
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/findings", "Missing id");
   const obs = await prisma.observation.delete({ where: { id } });
   await audit({ userId: user.id, action: "delete", resourceType: "observation", resourceId: id });
-  revalidatePath(`/engagements/${obs.projectId}`);
+  flashOk(`/engagements/${obs.projectId}`, "Observation deleted");
 }
 
-// ── Finding types management ─────────────────────────────────────────
+// â”€â”€ Finding types management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function addFindingType(fd: FormData) {
   const { user } = await requireUser();
   const name = str(fd, "name");
-  if (!name) throw new Error("Name is required");
+  if (!name) flashErr("/settings/findings", "Name is required");
   const type = await prisma.findingType.create({ data: { name } }).catch(() => null);
   await audit({
     userId: user.id,
@@ -230,13 +226,15 @@ export async function addFindingType(fd: FormData) {
     details: { name },
   });
   revalidatePath("/settings/findings");
+  flashOk("/settings/findings", "Saved");
 }
 
 export async function deleteFindingType(fd: FormData) {
   const { user } = await requireUser();
   const id = str(fd, "id");
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/findings", "Missing id");
   await prisma.findingType.delete({ where: { id } });
   await audit({ userId: user.id, action: "delete", resourceType: "finding_type", resourceId: id });
   revalidatePath("/settings/findings");
+  flashOk("/settings/findings", "Saved");
 }

@@ -1,9 +1,10 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
+import { flashErr, flashOk } from "@/lib/flash";
 import { mockCorrelate } from "@/lib/mock-sentinel";
 import { canTransition, type RuleStatus } from "@/lib/rule-lifecycle";
 
@@ -16,17 +17,17 @@ function date(fd: FormData, key: string): Date | null {
   return v ? new Date(v) : null;
 }
 
-// ── Timeline entries ─────────────────────────────────────────────────
+// â”€â”€ Timeline entries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function createTimelineEntry(fd: FormData) {
   const { user } = await requireUser();
   const projectId = str(fd, "projectId");
   const actionDescription = str(fd, "actionDescription");
-  if (!projectId || !actionDescription) throw new Error("Engagement and action are required");
+  if (!projectId || !actionDescription) flashErr("/timeline", "Engagement and action are required");
 
   const timestamp = date(fd, "timestamp") ?? new Date();
   const techniqueId = str(fd, "techniqueId");
-  // ponytail: tactic derived from the technique's first three letters of the id order —
+  // ponytail: tactic derived from the technique's first three letters of the id order â€”
   // a real tactic map arrives with the DeTT&CT import (Sprint 4)
   const entry = await prisma.timelineEntry.create({
     data: {
@@ -67,13 +68,14 @@ export async function createTimelineEntry(fd: FormData) {
   revalidatePath("/timeline");
   revalidatePath("/attack-matrix");
   revalidatePath(`/engagements/${projectId}`);
+  flashOk("/timeline", "Entry logged");
 }
 
 export async function updateTimelineOutcome(fd: FormData) {
   const { user } = await requireUser();
   const id = str(fd, "id");
   const outcome = str(fd, "outcome");
-  if (!id || !outcome) throw new Error("Missing fields");
+  if (!id || !outcome) flashErr("/timeline", "Missing fields");
   await prisma.timelineEntry.update({ where: { id }, data: { outcome: outcome as never } });
   await audit({
     userId: user.id,
@@ -89,7 +91,7 @@ export async function updateTimelineOutcome(fd: FormData) {
 export async function deleteTimelineEntry(fd: FormData) {
   const { user } = await requireUser();
   const id = fd.get("id") as string;
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/timeline", "Missing id");
   const entry = await prisma.timelineEntry.delete({ where: { id } });
   await audit({
     userId: user.id,
@@ -103,16 +105,16 @@ export async function deleteTimelineEntry(fd: FormData) {
   revalidatePath(`/engagements/${entry.projectId}`);
 }
 
-// ── Verdict confirmation / override ──────────────────────────────────
+// â”€â”€ Verdict confirmation / override â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function confirmVerdict(fd: FormData) {
   const { user } = await requireUser();
   const timelineEntryId = str(fd, "timelineEntryId");
   const override = str(fd, "verdict"); // optional operator correction
-  if (!timelineEntryId) throw new Error("Missing entry");
+  if (!timelineEntryId) flashErr("/timeline", "Missing entry");
 
   const existing = await prisma.detectionVerdict.findUnique({ where: { timelineEntryId } });
-  if (!existing) throw new Error("No verdict to confirm");
+  if (!existing) flashErr("/timeline", "No verdict to confirm");
 
   await prisma.detectionVerdict.update({
     where: { timelineEntryId },
@@ -130,6 +132,7 @@ export async function confirmVerdict(fd: FormData) {
     resourceId: existing.id,
     details: { timelineEntryId, verdict: override ?? existing.verdict },
   });
+    flashOk("/timeline", "Verdict confirmed");
   revalidatePath("/timeline");
   revalidatePath("/attack-matrix");
 }
@@ -137,7 +140,7 @@ export async function confirmVerdict(fd: FormData) {
 export async function recorrelateVerdict(fd: FormData) {
   await requireUser();
   const timelineEntryId = str(fd, "timelineEntryId");
-  if (!timelineEntryId) throw new Error("Missing entry");
+  if (!timelineEntryId) flashErr("/timeline", "Missing entry");
 
   const entry = await prisma.timelineEntry.findUniqueOrThrow({ where: { id: timelineEntryId } });
   if (!entry.techniqueId) return;
@@ -156,7 +159,7 @@ export async function recorrelateVerdict(fd: FormData) {
   revalidatePath("/attack-matrix");
 }
 
-// ── Rule requests ────────────────────────────────────────────────────
+// â”€â”€ Rule requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function defaultRuleXml(techniqueId: string): string {
   return `<group name="vanguard,redteam">
@@ -171,7 +174,7 @@ function defaultRuleXml(techniqueId: string): string {
 export async function createRuleRequest(fd: FormData) {
   const { user } = await requireUser();
   const techniqueId = str(fd, "techniqueId");
-  if (!techniqueId) throw new Error("Technique is required");
+  if (!techniqueId) flashErr("/attack-matrix", "Technique is required");
 
   const rr = await prisma.ruleRequest.create({
     data: {
@@ -193,12 +196,13 @@ export async function createRuleRequest(fd: FormData) {
   });
   revalidatePath("/rule-requests");
   revalidatePath("/attack-matrix");
+  flashOk("/rule-requests", "Draft created in backlog");
 }
 
 async function transition(rrId: string, to: RuleStatus, extra?: { approvedBy?: string; rejectionReason?: string }) {
   const current = await prisma.ruleRequest.findUniqueOrThrow({ where: { id: rrId } });
   const via = canTransition(current.status as RuleStatus, to);
-  if (!via) throw new Error(`Illegal transition ${current.status} → ${to}`);
+  if (!via) flashErr("/rule-requests", `Illegal transition ${current.status} -> ${to}`);
 
   const now = new Date();
   await prisma.ruleRequest.update({
@@ -220,16 +224,15 @@ async function transition(rrId: string, to: RuleStatus, extra?: { approvedBy?: s
 export async function submitRuleRequest(fd: FormData) {
   const { user } = await requireUser();
   const id = str(fd, "id");
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/timeline", "Missing id");
   const via = await transition(id, "pending_review");
   await audit({ userId: user.id, action: `rule_request:${via}`, resourceType: "rule_request", resourceId: id });
-  revalidatePath("/rule-requests");
-  revalidatePath(`/rule-requests/${id}`);
   revalidatePath("/attack-matrix");
+  flashOk("/rule-requests", "Submitted for review");
 }
 
 /**
- * Simulated Sentinel-side transitions (approve/reject/deploy). Replaced by polling in M12 —
+ * Simulated Sentinel-side transitions (approve/reject/deploy). Replaced by polling in M12 â€”
  * until then these buttons stand in for the SOC admin acting inside Sentinel.
  */
 export async function sentinelSimulate(fd: FormData) {
@@ -237,7 +240,7 @@ export async function sentinelSimulate(fd: FormData) {
   const id = str(fd, "id");
   const to = str(fd, "to") as RuleStatus | null;
   const reason = str(fd, "rejectionReason");
-  if (!id || !to) throw new Error("Missing fields");
+  if (!id || !to) flashErr("/rule-requests", "Missing fields");
   const via = await transition(id, to, reason ? { rejectionReason: reason } : undefined);
   await audit({
     userId: null,
@@ -246,9 +249,9 @@ export async function sentinelSimulate(fd: FormData) {
     resourceId: id,
     details: { simulated: true, to },
   });
-  revalidatePath("/rule-requests");
   revalidatePath(`/rule-requests/${id}`);
   revalidatePath("/attack-matrix");
+  flashOk("/rule-requests", `Sentinel simulation: ${to.replace(/_/g, " ")}`);
 }
 
 /** Operator action after a retest: verified when now detected, back to draft when still missed. */
@@ -256,7 +259,7 @@ export async function verifyRuleRequest(fd: FormData) {
   const { user } = await requireUser();
   const id = str(fd, "id");
   const passed = fd.get("passed") === "true";
-  if (!id) throw new Error("Missing id");
+  if (!id) flashErr("/timeline", "Missing id");
   const via = await transition(id, passed ? "verified" : "draft");
   await audit({
     userId: user.id,
@@ -265,7 +268,9 @@ export async function verifyRuleRequest(fd: FormData) {
     resourceId: id,
     details: { passed },
   });
-  revalidatePath("/rule-requests");
-  revalidatePath(`/rule-requests/${id}`);
   revalidatePath("/attack-matrix");
+  flashOk(
+    "/rule-requests",
+    passed ? "Retest passed - rule verified" : "Still undetected - back to draft"
+  );
 }
