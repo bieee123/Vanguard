@@ -1,0 +1,791 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Auth (better-auth core + twoFactor + admin plugins) ──────────────
+
+model User {
+  id               String    @id @default(cuid())
+  name             String
+  email            String    @unique
+  emailVerified    Boolean   @default(false) @map("email_verified")
+  image            String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  // twoFactor plugin
+  twoFactorEnabled Boolean   @default(false) @map("two_factor_enabled")
+  // username plugin
+  username         String?   @unique
+  displayUsername  String?   @map("display_username")
+  // admin plugin
+  role             String?
+  banned           Boolean?
+  banReason        String?   @map("ban_reason")
+  banExpires       DateTime? @map("ban_expires")
+
+  sessions     Session[]
+  accounts     Account[]
+  twoFactor    TwoFactor?
+  auditLogs    AuditLog[]
+  assignments  ProjectAssignment[]
+  projectNotes ProjectNote[]
+  ownedProjects Project[] @relation("ProjectOwner")
+  whiteCards    WhiteCard[] @relation("WhiteCardCreator")
+  findings      Finding[]
+  evidence      Evidence[]
+  reports       Report[]
+  timelineEntries TimelineEntry[]
+  confirmedVerdicts DetectionVerdict[] @relation("VerdictConfirmer")
+  ruleRequests  RuleRequest[]
+  kbNotes       Note[]        @relation("NoteAuthor")
+  assignedTasks Task[]        @relation("TaskAssignee")
+
+  @@map("user")
+}
+
+model Session {
+  id            String    @id @default(cuid())
+  userId        String    @map("user_id")
+  token         String    @unique
+  expiresAt     DateTime  @map("expires_at")
+  ipAddress     String?   @map("ip_address")
+  userAgent     String?   @map("user_agent")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  impersonatedBy String?  @map("impersonated_by")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String    @map("user_id")
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  password              String?
+  issuer                String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model TwoFactor {
+  id                       String    @id @default(cuid())
+  userId                   String    @unique @map("user_id")
+  secret                   String
+  backupCodes              String    @map("backup_codes")
+  verified                 Boolean   @default(false)
+  failedVerificationCount  Int       @default(0) @map("failed_verification_count")
+  lockedUntil              DateTime? @map("locked_until")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("two_factor")
+}
+
+// ── M1: Audit log (append-only) ──────────────────────────────────────
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?  @map("user_id")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  details      Json?
+  ipAddress    String?  @map("ip_address")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+// ── M2: Application & Engagement management ──────────────────────────
+
+enum ApplicationCriticality {
+  critical
+  high
+  medium
+  low
+}
+
+model Application {
+  id          String                @id @default(cuid())
+  name        String
+  description String?
+  repoUrl     String?               @map("repo_url")
+  criticality ApplicationCriticality @default(medium)
+  owningTeam  String?               @map("owning_team")
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  projects Project[]
+
+  @@map("application")
+}
+
+enum EngagementType {
+  internal_pentest
+  red_team_exercise
+  purple_team_drill
+  bug_bounty_triage
+  ad_hoc
+}
+
+enum EngagementStatus {
+  planned
+  active
+  paused
+  completed
+  reported
+}
+
+enum EngagementPhase {
+  recon
+  exploitation
+  post_exploitation
+  reporting
+}
+
+model Project {
+  id            String           @id @default(cuid())
+  code          String           @unique
+  name          String
+  type          EngagementType
+  status        EngagementStatus @default(planned)
+  phase         EngagementPhase  @default(recon)
+  description   String?
+  startDate     DateTime?        @map("start_date")
+  endDate       DateTime?        @map("end_date")
+  applicationId String           @map("application_id")
+  ownerId       String?          @map("owner_id")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  application   Application         @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  owner         User?               @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  assignments   ProjectAssignment[]
+  objectives    ProjectObjective[]
+  scopes        ProjectScope[]
+  targets       ProjectTarget[]
+  notes         ProjectNote[]
+  deconflictions Deconfliction[]
+  whiteCards    WhiteCard[]
+  assets        EngagementAsset[]
+  findings      Finding[]
+  observations  Observation[]
+  reports       Report[]
+  timelineEntries TimelineEntry[]
+  ruleRequests  RuleRequest[]
+  kbNotes       Note[]
+  kanbanTasks   Task[]
+
+  @@index([applicationId])
+  @@index([status])
+  @@map("project")
+}
+
+model ProjectAssignment {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  role      String   @default("operator")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_assignment")
+}
+
+enum ObjectiveStatus {
+  planned
+  in_progress
+  completed
+}
+
+model ProjectObjective {
+  id          String          @id @default(cuid())
+  projectId   String          @map("project_id")
+  title       String
+  description String?
+  status      ObjectiveStatus @default(planned)
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subTasks ProjectSubTask[]
+
+  @@index([projectId])
+  @@map("project_objective")
+}
+
+model ProjectSubTask {
+  id          String   @id @default(cuid())
+  objectiveId String   @map("objective_id")
+  title       String
+  completed   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  objective ProjectObjective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+
+  @@index([objectiveId])
+  @@map("project_sub_task")
+}
+
+enum ScopeDirection {
+  in_scope
+  out_of_scope
+}
+
+model ProjectScope {
+  id          String         @id @default(cuid())
+  projectId   String         @map("project_id")
+  direction   ScopeDirection
+  value       String
+  note        String?
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_scope")
+}
+
+model ProjectTarget {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  value     String
+  kind      String   @default("domain")
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_target")
+}
+
+model ProjectNote {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  authorId  String?  @map("author_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author  User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@map("project_note")
+}
+
+model Deconfliction {
+  id        String    @id @default(cuid())
+  projectId String    @map("project_id")
+  summary   String
+  channel   String?
+  occurredAt DateTime @default(now()) @map("occurred_at")
+  resolved  Boolean   @default(false)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("deconfliction")
+}
+
+model WhiteCard {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  description String
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("WhiteCardCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@map("white_card")
+}
+
+// ── M3: Asset inventory ──────────────────────────────────────────────
+
+enum AssetCriticality {
+  critical
+  high
+  medium
+  low
+  unknown
+}
+
+enum AssetStatus {
+  unverified
+  in_scope
+  out_of_scope
+  compromised
+  not_compromised
+}
+
+model Asset {
+  id              String           @id @default(cuid())
+  hostname        String?
+  ipAddress       String?          @map("ip_address")
+  osFingerprint   String?          @map("os_fingerprint")
+  openPorts       Json?            @map("open_ports")
+  businessUnit    String?          @map("business_unit")
+  criticality     AssetCriticality @default(unknown)
+  status          AssetStatus      @default(unverified)
+  discoveredBy    String?          @map("discovered_by")
+  sentinelAssetId String?          @map("sentinel_asset_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  engagements EngagementAsset[]
+  findings    FindingAsset[]
+  timelineEntries TimelineEntry[]
+
+  @@index([criticality])
+  @@index([status])
+  @@map("asset")
+}
+
+model EngagementAsset {
+  projectId String
+  assetId   String
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  asset   Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, assetId])
+  @@map("engagement_asset")
+}
+
+// ── M4: Findings per project ─────────────────────────────────────────
+
+enum FindingSeverity {
+  critical
+  high
+  medium
+  low
+  info
+}
+
+enum FindingStatus {
+  open
+  retest
+  fixed
+  accepted_risk
+  false_positive
+}
+
+model Finding {
+  id               String         @id @default(cuid())
+  projectId        String         @map("project_id")
+  title            String
+  typeId           String?        @map("type_id")
+  severity         FindingSeverity
+  status           FindingStatus  @default(open)
+  cve              String?
+  cwe              String?
+  cvssScore        Decimal?       @db.Decimal(4, 1) @map("cvss_score")
+  cvssVector       String?        @map("cvss_vector")
+  description      String?
+  mitigation       String?
+  replication      String?
+  attackTechniques String[]       @map("attack_techniques")
+  references       String[]
+  createdById      String?        @map("created_by_id")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type        FindingType?   @relation(fields: [typeId], references: [id], onDelete: SetNull)
+  createdBy   User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  assets      FindingAsset[]
+  tags        FindingTag[]
+  evidence    Evidence[]
+
+  @@index([projectId])
+  @@index([severity])
+  @@index([status])
+  @@map("finding")
+}
+
+model FindingAsset {
+  findingId String
+  assetId   String
+
+  finding Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  asset   Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([findingId, assetId])
+  @@map("finding_asset")
+}
+
+model Observation {
+  id          String          @id @default(cuid())
+  projectId   String          @map("project_id")
+  title       String
+  body        String?
+  severity    FindingSeverity @default(info)
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("observation")
+}
+
+model Tag {
+  id   String @id @default(cuid())
+  name String @unique
+
+  findings FindingTag[]
+
+  @@map("tag")
+}
+
+model FindingTag {
+  findingId String
+  tagId     String
+
+  finding Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([findingId, tagId])
+  @@map("finding_tag")
+}
+
+model FindingType {
+  id   String @id @default(cuid())
+  name String @unique
+
+  findings Finding[]
+
+  @@map("finding_type")
+}
+
+// ── M6: Reporting engine ─────────────────────────────────────────────
+
+enum ReportStatus {
+  draft
+  queued
+  generating
+  generated
+  failed
+}
+
+model Report {
+  id             String       @id @default(cuid())
+  projectId      String       @map("project_id")
+  title          String
+  version        Int          @default(1)
+  status         ReportStatus @default(draft)
+  execSummary    String?      @map("exec_summary")
+  conclusion     String?
+  filePath       String?      @map("file_path")
+  archivedAt     DateTime?    @map("archived_at")
+  generatedAt    DateTime?    @map("generated_at")
+  createdById    String?      @map("created_by_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  clonedFromId   String?      @map("cloned_from_id")
+
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  findings    ReportFinding[]
+  evidence    Evidence[]
+  clonedFrom  Report?         @relation("ReportClone", fields: [clonedFromId], references: [id], onDelete: SetNull)
+  clones      Report[]        @relation("ReportClone")
+
+  @@index([projectId])
+  @@index([status])
+  @@map("report")
+}
+
+// immutable snapshot of a finding at generation time (v1 "link copy" pattern)
+model ReportFinding {
+  id           String   @id @default(cuid())
+  reportId     String   @map("report_id")
+  sourceId     String?  @map("source_id")
+  position     Int
+  title        String
+  severity     FindingSeverity
+  status       FindingStatus @default(open)
+  cve          String?
+  cwe          String?
+  cvssScore    Decimal? @db.Decimal(4, 1) @map("cvss_score")
+  cvssVector   String?  @map("cvss_vector")
+  description  String?
+  mitigation   String?
+  replication  String?
+  attackTechniques String[] @map("attack_techniques")
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@map("report_finding")
+}
+
+model Evidence {
+  id        String   @id @default(cuid())
+  reportId  String?  @map("report_id")
+  findingId String?  @map("finding_id")
+  filePath  String   @map("file_path")
+  caption   String?
+  uploadedById String? @map("uploaded_by_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  report     Report? @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  finding    Finding? @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  uploadedBy User?   @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([reportId])
+  @@index([findingId])
+  @@map("evidence")
+}
+
+// ── M7: Purple Team Sync ─────────────────────────────────────────────
+
+enum TimelineOutcome {
+  success
+  failed
+  blocked
+}
+
+model TimelineEntry {
+  id               String          @id @default(cuid())
+  projectId        String          @map("project_id")
+  assetId          String?         @map("asset_id")
+  techniqueId      String?         @map("technique_id")
+  tactic           String?
+  timestamp        DateTime        @default(now())
+  actionDescription String         @map("action_description")
+  outcome          TimelineOutcome @default(success)
+  operatorId       String?         @map("operator_id")
+  note             String?
+  command          String?
+  technicalNotes   String?         @map("technical_notes")
+  sequenceOrder    Int?            @map("sequence_order")
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  project  Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  asset    Asset?            @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  operator User?             @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+  verdict  DetectionVerdict?
+  ruleRequests RuleRequest[]
+
+  @@index([projectId])
+  @@index([techniqueId])
+  @@index([timestamp])
+  @@map("timeline_entry")
+}
+
+enum VerdictType {
+  detected
+  not_detected
+  partial
+  detected_late
+  untested
+}
+
+// 1-1 with TimelineEntry — direct join keeps heatmap aggregation trivial (v1 pattern)
+model DetectionVerdict {
+  id                    String     @id @default(cuid())
+  timelineEntryId       String     @unique @map("timeline_entry_id")
+  matchedAlertId        String?    @map("matched_alert_id")
+  verdict               VerdictType @default(untested)
+  detectionDelaySeconds Int?       @map("detection_delay_seconds")
+  confirmedByOperator   Boolean    @default(false) @map("confirmed_by_operator")
+  confirmedById         String?    @map("confirmed_by_id")
+  confirmedAt           DateTime?  @map("confirmed_at")
+  createdAt             DateTime   @default(now()) @map("created_at")
+  updatedAt             DateTime   @updatedAt @map("updated_at")
+
+  timelineEntry TimelineEntry @relation(fields: [timelineEntryId], references: [id], onDelete: Cascade)
+  confirmedBy   User?         @relation("VerdictConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+
+  @@index([verdict])
+  @@map("detection_verdict")
+}
+
+enum RuleRequestStatus {
+  draft
+  pending_review
+  approved
+  deployed
+  rejected
+  verified
+}
+
+model RuleRequest {
+  id                String           @id @default(cuid())
+  projectId         String?          @map("project_id")
+  techniqueId       String           @map("technique_id")
+  timelineEntryId   String?          @map("timeline_entry_id")
+  draftRuleXml      String           @map("draft_rule_xml")
+  testLogSamplePath String?          @map("test_log_sample_path")
+  justification     String?
+  status            RuleRequestStatus @default(draft)
+  requestedById     String?          @map("requested_by_id")
+  requestedAt       DateTime?        @map("requested_at")
+  approvedBy        String?
+  approvedAt        DateTime?        @map("approved_at")
+  deployedAt        DateTime?        @map("deployed_at")
+  verifiedAt        DateTime?        @map("verified_at")
+  rejectionReason   String?          @map("rejection_reason")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  project       Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  timelineEntry TimelineEntry? @relation(fields: [timelineEntryId], references: [id], onDelete: SetNull)
+  requestedBy   User?          @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([techniqueId])
+  @@map("rule_request")
+}
+
+// ── M9/M10: Knowledge Base + RAG ─────────────────────────────────────
+
+model Note {
+  id            String   @id @default(cuid())
+  title         String
+  bodyMarkdown  String   @default("") @map("body_markdown")
+  projectId     String?  @map("project_id")
+  excludeFromRag Boolean @default(false) @map("exclude_from_rag")
+  createdById   String?  @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project  Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("NoteAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  linksOut NoteLink[] @relation("NoteSource")
+  linksIn  NoteLink[] @relation("NoteTarget")
+  tags     NoteTag[]
+  chunks   NoteChunk[]
+
+  @@index([title])
+  @@map("note")
+}
+
+model NoteLink {
+  id             String   @id @default(cuid())
+  sourceId       String   @map("source_id")
+  targetId       String?  @map("target_id") // null = broken wiki-link
+  targetTitleRaw String   @map("target_title_raw")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  source Note  @relation("NoteSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target Note? @relation("NoteTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([targetId])
+  @@map("note_link")
+}
+
+model NoteTag {
+  noteId String
+  tag    String
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, tag])
+  @@map("note_tag")
+}
+
+// ponytail: embedding stored as JSON float array — local PG18 has no pgvector; compose uses the
+// pgvector image. Swap to Unsupported("vector") + raw-SQL cosine when corpus >~5k chunks.
+model NoteChunk {
+  id              String  @id @default(cuid())
+  noteId          String  @map("note_id")
+  chunkIndex      Int     @map("chunk_index")
+  chunkText       String  @map("chunk_text")
+  embeddingJson   String? @map("embedding_json")
+  excludeFromRag  Boolean @default(false) @map("exclude_from_rag")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId])
+  @@map("note_chunk")
+}
+
+// ── M11: DeTT&CT snapshots ───────────────────────────────────────────
+
+model DettctRun {
+  id            String   @id @default(cuid())
+  filePath      String   @map("file_path")
+  runAt         DateTime @default(now()) @map("run_at")
+  importedAt    DateTime @default(now()) @map("imported_at")
+  payload       Json
+  totalTechniques Int    @map("total_techniques")
+  coveredCount  Int      @map("covered_count")
+
+  @@map("dettct_run")
+}
+
+// ── M14: Tasks Kanban ────────────────────────────────────────────────
+
+enum TaskStatus {
+  todo
+  in_progress
+  blocked
+  done
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  projectId   String     @map("project_id")
+  title       String
+  description String?
+  status      TaskStatus @default(todo)
+  taskType    String?    @map("task_type")
+  assigneeId  String?    @map("assignee_id")
+  dueDate     DateTime?  @map("due_date")
+  order       Int        @default(0)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee User?   @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status])
+  @@map("task")
+}
