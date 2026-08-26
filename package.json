@@ -16,7 +16,8 @@
     "test": "vitest run",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
-    "db:seed": "tsx scripts/seed-admin.ts"
+    "db:seed": "tsx scripts/seed-admin.ts",
+    "db:seed:types": "tsx scripts/seed-finding-types.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
