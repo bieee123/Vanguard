@@ -35,3 +35,18 @@ export function canTransition(from: RuleStatus, to: RuleStatus): string | null {
 export function allowedTargets(from: RuleStatus): RuleStatus[] {
   return Object.keys(TRANSITIONS[from] ?? {}) as RuleStatus[];
 }
+
+/** Map Sentinel lifecycle status back to Vanguard's local status. */
+export function mapSentinelStatus(s: string): RuleStatus {
+  switch (s) {
+    case "approved":
+    case "deployed":
+    case "rejected":
+    case "verified":
+      return s;
+    case "verify_failed":
+      return "draft";
+    default:
+      return "pending_review";
+  }
+}

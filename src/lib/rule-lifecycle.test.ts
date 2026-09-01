@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canTransition, allowedTargets } from "./rule-lifecycle";
+import { canTransition, allowedTargets, mapSentinelStatus } from "./rule-lifecycle";
 
 describe("rule lifecycle", () => {
   it("allows submit from draft only", () => {
@@ -24,5 +24,15 @@ describe("rule lifecycle", () => {
   it("lists targets", () => {
     expect(allowedTargets("pending_review")).toEqual(["approved", "rejected"]);
     expect(allowedTargets("verified")).toEqual([]);
+  });
+
+  it("maps sentinel status back to local status", () => {
+    expect(mapSentinelStatus("approved")).toBe("approved");
+    expect(mapSentinelStatus("deployed")).toBe("deployed");
+    expect(mapSentinelStatus("rejected")).toBe("rejected");
+    expect(mapSentinelStatus("verified")).toBe("verified");
+    expect(mapSentinelStatus("verify_failed")).toBe("draft");
+    expect(mapSentinelStatus("pending_review")).toBe("pending_review");
+    expect(mapSentinelStatus("bogus")).toBe("pending_review");
   });
 });

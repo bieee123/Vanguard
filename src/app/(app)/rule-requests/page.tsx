@@ -2,7 +2,9 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { Badge, type BadgeColor } from "@/components/ui/badge";
+import { sentinelConfigured } from "@/lib/sentinel";
 import {
+  refreshRuleStatus,
   sentinelSimulate,
   submitRuleRequest,
   verifyRuleRequest,
@@ -16,14 +18,13 @@ const STATUS_COLOR: Record<string, BadgeColor> = {
   verified: "teal",
   rejected: "signal",
 };
-const NEXT: Record<string, { to: string; label: string; cls: string }[]> = {
-  draft: [{ to: "pending_review", label: "Submit", cls: "btn-primary" }],
+// Sentinel-side transitions — only shown while the live connection is off (M12 sim).
+const SIM_NEXT: Record<string, { to: string; label: string; cls: string }[]> = {
   pending_review: [
     { to: "approved", label: "SIM approve", cls: "btn-teal" },
     { to: "rejected", label: "SIM reject", cls: "btn-danger" },
   ],
   approved: [{ to: "deployed", label: "SIM deploy", cls: "btn-teal" }],
-  deployed: [],
 };
 
 export default async function RuleRequestsPage({
@@ -32,6 +33,7 @@ export default async function RuleRequestsPage({
   searchParams: Promise<{ status?: string }>;
 }) {
   const { status } = await searchParams;
+  const live = sentinelConfigured();
   const requests = await prisma.ruleRequest.findMany({
     where: status ? { status: status as never } : {},
     orderBy: { createdAt: "desc" },
@@ -117,8 +119,15 @@ export default async function RuleRequestsPage({
               </div>
 
               <div className="space-y-2 border-l border-line-subtle pl-6">
-                {(NEXT[rr.status] ?? []).map((n) => (
-                  <form key={n.to} action={n.to === "pending_review" ? submitRuleRequest : sentinelSimulate}>
+                {rr.status === "draft" && (
+                  <form action={submitRuleRequest}>
+                    <input type="hidden" name="id" value={rr.id} />
+                    <button className="btn btn-primary w-full justify-center">Submit</button>
+                  </form>
+                )}
+
+                {!live && (SIM_NEXT[rr.status] ?? []).map((n) => (
+                  <form key={n.to} action={sentinelSimulate}>
                     <input type="hidden" name="id" value={rr.id} />
                     <input type="hidden" name="to" value={n.to} />
                     <button className={`btn ${n.cls} w-full justify-center`}>{n.label}</button>
@@ -131,6 +140,16 @@ export default async function RuleRequestsPage({
                     )}
                   </form>
                 ))}
+
+                {live && (rr.status === "pending_review" || rr.status === "approved") && (
+                  <form action={refreshRuleStatus}>
+                    <input type="hidden" name="id" value={rr.id} />
+                    <button className="btn btn-secondary w-full justify-center">
+                      Sync with Sentinel
+                    </button>
+                  </form>
+                )}
+
                 {rr.status === "deployed" && (
                   <>
                     <form action={verifyRuleRequest}>

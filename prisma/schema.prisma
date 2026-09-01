@@ -670,6 +670,7 @@ model RuleRequest {
   deployedAt        DateTime?        @map("deployed_at")
   verifiedAt        DateTime?        @map("verified_at")
   rejectionReason   String?          @map("rejection_reason")
+  sentinelRuleRequestId String?      @map("sentinel_rule_request_id")
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
 

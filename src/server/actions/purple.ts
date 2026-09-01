@@ -5,8 +5,9 @@ import { prisma } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/session";
 import { flashErr, flashOk } from "@/lib/flash";
-import { mockCorrelate } from "@/lib/mock-sentinel";
-import { canTransition, type RuleStatus } from "@/lib/rule-lifecycle";
+import { correlate, pollRuleStatus, sentinelConfigured, submitRetest, submitRuleRequest as sentinelSubmitRuleRequest } from "@/lib/sentinel";
+import { sendMail } from "@/lib/mail";
+import { canTransition, mapSentinelStatus, type RuleStatus } from "@/lib/rule-lifecycle";
 
 function str(fd: FormData, key: string): string | null {
   const v = fd.get(key);
@@ -45,9 +46,14 @@ export async function createTimelineEntry(fd: FormData) {
     },
   });
 
-  // auto-correlate against the mocked Sentinel (M7); real client lands in M12
+  // auto-correlate against Sentinel (M12) — falls back to the deterministic mock
+  // until SENTINEL_BASE_URL is configured
   if (techniqueId) {
-    const { verdict, alert } = mockCorrelate(techniqueId, timestamp);
+    const { verdict, alert } = await correlate(techniqueId, timestamp, {
+      engagementId: projectId,
+      assetId: str(fd, "assetId"),
+      description: actionDescription,
+    });
     await prisma.detectionVerdict.create({
       data: {
         timelineEntryId: entry.id,
@@ -144,7 +150,10 @@ export async function recorrelateVerdict(fd: FormData) {
 
   const entry = await prisma.timelineEntry.findUniqueOrThrow({ where: { id: timelineEntryId } });
   if (!entry.techniqueId) return;
-  const { verdict, alert } = mockCorrelate(entry.techniqueId, entry.timestamp);
+  const { verdict, alert } = await correlate(entry.techniqueId, entry.timestamp, {
+    engagementId: entry.projectId,
+    assetId: entry.assetId,
+  });
   await prisma.detectionVerdict.upsert({
     where: { timelineEntryId },
     update: { verdict: verdict as never, matchedAlertId: alert?.alertId, detectionDelaySeconds: alert?.delaySeconds },
@@ -225,10 +234,94 @@ export async function submitRuleRequest(fd: FormData) {
   const { user } = await requireUser();
   const id = str(fd, "id");
   if (!id) flashErr("/timeline", "Missing id");
+
+  if (sentinelConfigured()) {
+    const rr = await prisma.ruleRequest.findUniqueOrThrow({ where: { id } });
+    try {
+      const json = (await sentinelSubmitRuleRequest({
+        engagementId: rr.projectId ?? "",
+        findingId: rr.timelineEntryId ?? "",
+        techniqueId: rr.techniqueId,
+        ruleJson: { rule_xml: rr.draftRuleXml },
+        rationale: rr.justification ?? "No justification provided.",
+      })) as { id?: string; status?: string };
+      await prisma.ruleRequest.update({
+        where: { id },
+        data: { sentinelRuleRequestId: json.id, requestedAt: new Date() },
+      });
+    } catch (err) {
+      flashErr("/rule-requests", `Sentinel unreachable — ${err instanceof Error ? err.message : "push failed"}`);
+      return;
+    }
+    await prisma.ruleRequest.update({ where: { id }, data: { status: "pending_review" } });
+    await audit({
+      userId: user.id,
+      action: "rule_request:submit",
+      resourceType: "rule_request",
+      resourceId: id,
+      details: { sentinel: true },
+    });
+    revalidatePath("/attack-matrix");
+    flashOk("/rule-requests", "Submitted to Sentinel for review");
+    return;
+  }
+
   const via = await transition(id, "pending_review");
   await audit({ userId: user.id, action: `rule_request:${via}`, resourceType: "rule_request", resourceId: id });
   revalidatePath("/attack-matrix");
   flashOk("/rule-requests", "Submitted for review");
+}
+
+/** Sync a rule request's lifecycle from Sentinel (approve/deploy/reject land here). */
+export async function refreshRuleStatus(fd: FormData) {
+  const { user } = await requireUser();
+  const id = str(fd, "id");
+  if (!id) flashErr("/rule-requests", "Missing id");
+  const rr = await prisma.ruleRequest.findUniqueOrThrow({
+    where: { id },
+    include: { requestedBy: true },
+  });
+  if (!rr.sentinelRuleRequestId) {
+    flashErr("/rule-requests", "Not pushed to Sentinel yet");
+    return;
+  }
+  let json: { status?: string; approved_by?: string | null; rejection_reason?: string | null };
+  try {
+    json = (await pollRuleStatus(rr.sentinelRuleRequestId)) as typeof json;
+  } catch (err) {
+    flashErr("/rule-requests", `Sentinel unreachable — ${err instanceof Error ? err.message : "poll failed"}`);
+    return;
+  }
+  const next = mapSentinelStatus(json.status ?? "pending_review");
+  const now = new Date();
+  const changed = next !== rr.status;
+  await prisma.ruleRequest.update({
+    where: { id },
+    data: {
+      status: next,
+      approvedBy: next === "approved" || next === "deployed" ? (json.approved_by ?? rr.approvedBy) : rr.approvedBy,
+      approvedAt: next === "approved" ? now : rr.approvedAt,
+      deployedAt: next === "deployed" ? now : rr.deployedAt,
+      rejectionReason: next === "rejected" ? (json.rejection_reason ?? rr.rejectionReason) : rr.rejectionReason,
+    },
+  });
+  await audit({
+    userId: user.id,
+    action: `rule_request:sync`,
+    resourceType: "rule_request",
+    resourceId: id,
+    details: { from: rr.status, to: next },
+  });
+  if (changed && rr.requestedBy?.email) {
+    await sendMail(
+      rr.requestedBy.email,
+      `Rule request ${rr.techniqueId} → ${next.replace(/_/g, " ")}`,
+      `Detection gap ${rr.techniqueId} moved to "${next.replace(/_/g, " ")}" in Sentinel.`
+    ).catch(() => undefined);
+  }
+  revalidatePath("/attack-matrix");
+  revalidatePath("/rule-requests");
+  flashOk("/rule-requests", changed ? `Synced — status is now ${next.replace(/_/g, " ")}` : "No change");
 }
 
 /**
@@ -260,6 +353,36 @@ export async function verifyRuleRequest(fd: FormData) {
   const id = str(fd, "id");
   const passed = fd.get("passed") === "true";
   if (!id) flashErr("/timeline", "Missing id");
+
+  if (sentinelConfigured()) {
+    const rr = await prisma.ruleRequest.findUniqueOrThrow({ where: { id } });
+    if (rr.sentinelRuleRequestId) {
+      try {
+        await submitRetest(rr.sentinelRuleRequestId, {
+          verdict: passed ? "verified" : "verify_failed",
+          testDetails: `Operator retest after deploy: ${passed ? "detected" : "still missed"}`,
+        });
+      } catch (err) {
+        flashErr("/rule-requests", `Sentinel unreachable — ${err instanceof Error ? err.message : "retest failed"}`);
+        return;
+      }
+    }
+    const via = await transition(id, passed ? "verified" : "draft");
+    await audit({
+      userId: user.id,
+      action: `rule_request:${via}`,
+      resourceType: "rule_request",
+      resourceId: id,
+      details: { passed, sentinel: true },
+    });
+    revalidatePath("/attack-matrix");
+    flashOk(
+      "/rule-requests",
+      passed ? "Retest passed - rule verified" : "Still undetected - back to draft"
+    );
+    return;
+  }
+
   const via = await transition(id, passed ? "verified" : "draft");
   await audit({
     userId: user.id,

@@ -4,6 +4,7 @@ const NAV = [
   { href: "/settings/account", label: "Account" },
   { href: "/settings/security", label: "Security" },
   { href: "/settings/findings", label: "Findings" },
+  { href: "/settings/integrations", label: "Integrations" },
   { href: "/settings/users", label: "Users" },
 ];
 
@@ -24,7 +25,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
             </Link>
           ))}
           <span className="mt-2 px-3 text-[10px] uppercase tracking-wide text-fg-disabled">
-            Sentinel · AI · Retention — Sprint 5
+            AI · Retention — Sprint 5
           </span>
         </nav>
         <div className="min-w-0">{children}</div>
