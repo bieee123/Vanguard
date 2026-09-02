@@ -28,7 +28,7 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ range?: string }>;
 }) {
-  const range = searchParams ? (await searchParams).range ?? "30d" : "30d";
+  const range = searchParams ? (await searchParams).range ?? "24h" : "24h";
   const windowDays = WINDOW_HOURS[range] ? WINDOW_HOURS[range] / 24 : null; // null = all
   const cutoff = windowDays ? new Date(Date.now() - windowDays * 86_400_000) : null;
 

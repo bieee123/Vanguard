@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { Bell } from "lucide-react";
 import { LogoutButton } from "@/components/shell/logout-button";
 import { RefreshButton } from "@/components/shell/refresh-button";
 import { GlobalSearch } from "@/components/shell/search";
@@ -40,7 +41,7 @@ export async function Topbar({ userName }: { userName: string }) {
           className="flex cursor-not-allowed items-center text-fg-disabled"
           title="Notifications land in Sprint 5"
         >
-          🔔
+          <Bell size={15} />
         </span>
 
         <span className="text-[13px] text-fg-secondary">{userName}</span>

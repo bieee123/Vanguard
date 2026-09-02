@@ -34,7 +34,7 @@ export function TimeRangeSelect() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const current = params.get("range") ?? "30d";
+  const current = params.get("range") ?? "24h";
   return (
     <select
       aria-label="Time range"
@@ -42,7 +42,7 @@ export function TimeRangeSelect() {
       className="input w-auto bg-panel py-1 text-xs"
       onChange={(e) => {
         const next = new URLSearchParams(params.toString());
-        if (e.target.value === "30d") next.delete("range");
+        if (e.target.value === "24h") next.delete("range");
         else next.set("range", e.target.value);
         router.push(`${pathname}?${next}`);
       }}
