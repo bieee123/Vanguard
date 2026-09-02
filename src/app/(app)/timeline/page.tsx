@@ -92,7 +92,7 @@ export default async function TimelinePage({
                   {e.timestamp.toISOString().slice(0, 16).replace("T", " ")}
                 </td>
                 <td className="font-mono text-xs">
-                  <Link href={`/engagements/${e.projectId}`} className="hover:underline">
+                  <Link href={`/engagements/${e.projectId}`} className="text-fg-secondary hover:text-blue">
                     {e.project.code}
                   </Link>
                 </td>

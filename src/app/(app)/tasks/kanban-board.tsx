@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { moveTask } from "@/server/actions/tasks";
 
 export interface BoardTask {
@@ -22,8 +23,21 @@ const COLUMNS = [
 
 /** Kanban with native HTML5 drag & drop — zero dependencies. */
 export function KanbanBoard({ tasks }: { tasks: Record<string, BoardTask[]> }) {
+  const router = useRouter();
   const [dragging, setDragging] = useState<string | null>(null);
   const [hoverCol, setHoverCol] = useState<string | null>(null);
+
+  const dropOn = async (colKey: string) => {
+    setHoverCol(null);
+    if (!dragging) return;
+    const fd = new FormData();
+    fd.set("id", dragging);
+    fd.set("status", colKey);
+    setDragging(null);
+    // server action + router.refresh so the board re-renders from the DB
+    await moveTask(fd);
+    router.refresh();
+  };
 
   return (
     <div className="grid grid-cols-4 gap-3">
@@ -37,14 +51,7 @@ export function KanbanBoard({ tasks }: { tasks: Record<string, BoardTask[]> }) {
           onDragLeave={() => setHoverCol((h) => (h === col.key ? null : h))}
           onDrop={(e) => {
             e.preventDefault();
-            setHoverCol(null);
-            if (!dragging) return;
-            // server action via hidden form submit keeps it a plain POST — no client state to reconcile
-            const fd = new FormData();
-            fd.set("id", dragging);
-            fd.set("status", col.key);
-            void moveTask(fd);
-            setDragging(null);
+            void dropOn(col.key);
           }}
           className={`min-h-[24rem] rounded-md border p-2 ${
             hoverCol === col.key ? "border-blue bg-blue-dim/30" : "border-line-subtle bg-panel"

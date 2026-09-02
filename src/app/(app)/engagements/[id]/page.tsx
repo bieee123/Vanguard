@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { KanbanSquare } from "lucide-react";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
@@ -144,6 +145,13 @@ export default async function EngagementDetailPage({
             {project.endDate?.toISOString().slice(0, 10) ?? "?"}
           </span>
           <span>Owner: {project.owner?.name ?? "—"}</span>
+          <Link
+            href={`/tasks?project=${project.id}`}
+            className="btn btn-secondary inline-flex items-center gap-1.5 py-1"
+          >
+            <KanbanSquare size={13} strokeWidth={1.75} />
+            Tasks
+          </Link>
           <Link href={`/engagements/${project.id}/edit`} className="ml-auto btn btn-secondary py-1">
             Edit
           </Link>
