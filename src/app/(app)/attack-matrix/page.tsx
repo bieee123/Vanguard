@@ -159,10 +159,13 @@ export default async function AttackMatrixPage({
               <thead>
                 <tr>
                   {tactics.map((tactic) => (
-                    <th key={tactic} className="pb-1 align-bottom">
-                      <span className="block w-24 text-[10px] font-semibold uppercase tracking-wide text-fg-muted [writing-mode:vertical-rl] rotate-180">
-                        {tactic.replace(/-/g, " ")}
-                      </span>
+                    <th key={tactic} className="px-0.5 pb-2 align-bottom">
+                      {/* diagonal (-45°) tactic label so it reads while columns stay narrow */}
+                      <div className="relative h-24 w-5">
+                        <span className="absolute bottom-0 left-0 origin-bottom-left -rotate-45 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+                          {tactic.replace(/-/g, " ")}
+                        </span>
+                      </div>
                     </th>
                   ))}
                 </tr>
