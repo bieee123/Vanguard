@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { LogoutButton } from "@/components/shell/logout-button";
 import { RefreshButton } from "@/components/shell/refresh-button";
+import { GlobalSearch } from "@/components/shell/search";
 import { EngagementSelector, TimeRangeSelect } from "@/components/shell/topbar-client";
 
 export async function Topbar({ userName }: { userName: string }) {
@@ -24,14 +25,9 @@ export async function Topbar({ userName }: { userName: string }) {
           <EngagementSelector projects={projects} />
         </div>
 
-        <form action="/findings" className="hidden md:block">
-          <input
-            name="q"
-            placeholder="Search findings..."
-            className="input w-52 bg-panel py-1 text-xs"
-            aria-label="Global search"
-          />
-        </form>
+        <div className="hidden md:block">
+          <GlobalSearch />
+        </div>
 
         <div className="hidden xl:block">
           <TimeRangeSelect />
@@ -40,7 +36,10 @@ export async function Topbar({ userName }: { userName: string }) {
         <RefreshButton />
 
         {/* notification bell — placeholder until M15 Notifications */}
-        <span className="cursor-not-allowed text-fg-disabled" title="Notifications land in Sprint 5">
+        <span
+          className="flex cursor-not-allowed items-center text-fg-disabled"
+          title="Notifications land in Sprint 5"
+        >
           🔔
         </span>
 
