@@ -2,10 +2,16 @@
 
 import { useEffect, useState } from "react";
 
-/** Toast rendered from server-read flash cookies (see FlashCookie). */
+const OK_COOKIE = "vg_ok";
+const ERR_COOKIE = "vg_err";
+
+/** Toast rendered from flash cookies; clears the cookie after showing. */
 export function CookieToast({ message, err }: { message: string; err?: boolean }) {
   const [visible, setVisible] = useState(true);
   useEffect(() => {
+    // Server Components can't delete cookies, so clear here client-side.
+    document.cookie = `${OK_COOKIE}=; Max-Age=0; path=/; SameSite=Lax`;
+    document.cookie = `${ERR_COOKIE}=; Max-Age=0; path=/; SameSite=Lax`;
     const t = setTimeout(() => setVisible(false), 4000);
     return () => clearTimeout(t);
   }, []);
