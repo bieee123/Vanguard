@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { Grid3X3 } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { sentinelConfigured } from "@/lib/sentinel";
+import { aiConfigured } from "@/lib/ai";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusIndicator } from "@/components/dashboard/status-indicator";
@@ -34,7 +37,7 @@ export default async function DashboardPage({
 
   const [
     applicationCount,
-    activeEngagements,
+    activeEngagementCount,
     openCritical,
     severityDist,
     testedEntriesRaw,
@@ -43,14 +46,12 @@ export default async function DashboardPage({
     criticalDates,
   ] = await Promise.all([
     prisma.application.count(),
-    prisma.project.findMany({
+    prisma.project.count({
       where: { status: { in: ["planned", "active", "paused"] } },
-      orderBy: { createdAt: "desc" },
-      take: 5,
     }),
     prisma.finding.count({ where: { severity: "critical", status: "open" } }),
     prisma.finding.groupBy({ by: ["severity"], _count: true }),
-    // techniques tested at least once, with verdicts
+    // techniques tested at least once, with verdicts (full scan — coverage is per-distinct-technique)
     prisma.timelineEntry.findMany({
       where: { techniqueId: { not: null }, verdict: { isNot: null } },
       select: {
@@ -65,7 +66,6 @@ export default async function DashboardPage({
         verdict: { select: { verdict: true, confirmedByOperator: true } },
       },
       orderBy: { timestamp: "desc" },
-      take: 400,
     }),
     prisma.timelineEntry.findMany({
       where: { techniqueId: { not: null }, ...(cutoff ? { timestamp: { gte: cutoff } } : {}) },
@@ -90,6 +90,10 @@ export default async function DashboardPage({
     prisma.project.findMany({ select: { createdAt: true }, orderBy: { createdAt: "asc" } }),
     prisma.finding.findMany({ where: { severity: "critical" }, select: { createdAt: true } }),
   ]);
+
+  // integration state from live config (Sprint 5) — not hardcoded
+  const sentinelOn = sentinelConfigured();
+  const aiOn = aiConfigured();
 
   if (applicationCount === 0) {
     return (
@@ -145,7 +149,7 @@ export default async function DashboardPage({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Panel>
           <p className="label">Active Engagements</p>
-          <p className="font-mono text-2xl">{activeEngagements.length}</p>
+          <p className="font-mono text-2xl">{activeEngagementCount}</p>
           <Sparkline points={engagementSpark} />
           <TrendDelta series={engagementSpark} />
         </Panel>
@@ -168,8 +172,13 @@ export default async function DashboardPage({
           <p className={`font-mono text-2xl ${gapTechniques.length > 0 ? "text-signal" : "text-fg-disabled"}`}>
             {gapTechniques.length}
           </p>
-          <Link href="/attack-matrix" className="text-[11px] text-blue hover:underline">
-            view in matrix →
+          <Link
+            href="/attack-matrix"
+            title="View detection gaps in the matrix"
+            className="btn btn-secondary inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px]"
+          >
+            <Grid3X3 size={12} strokeWidth={2} />
+            matrix
           </Link>
         </Panel>
       </div>
@@ -199,8 +208,12 @@ export default async function DashboardPage({
       <Panel
         title="ATT&CK Coverage"
         actions={
-          <Link href="/attack-matrix" className="btn btn-secondary px-2 py-0.5 text-xs">
-            full matrix →
+          <Link
+            href="/attack-matrix"
+            className="btn btn-secondary inline-flex items-center gap-1.5 px-2 py-0.5 text-xs"
+          >
+            <Grid3X3 size={13} strokeWidth={1.75} />
+            full matrix
           </Link>
         }
       >
@@ -304,16 +317,32 @@ export default async function DashboardPage({
         </table>
       </Panel>
 
-      {/* Row 5 — integration health */}
+      {/* Row 5 — integration health (driven by live config) */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel>
-          <StatusIndicator label="VANGUARD → SENTINEL" state="inactive" detail="inactive — last sync never (M12)" />
+          <StatusIndicator
+            label="VANGUARD → SENTINEL"
+            state={sentinelOn ? "healthy" : "inactive"}
+            detail={
+              sentinelOn
+                ? "configured — live correlation active"
+                : "unconfigured — mock correlation"
+            }
+          />
         </Panel>
         <Panel>
-          <StatusIndicator label="SENTINEL → WAZUH" state="inactive" detail="read-only · external (informational)" />
+          <StatusIndicator
+            label="SENTINEL → WAZUH"
+            state="inactive"
+            detail="read-only · external (informational)"
+          />
         </Panel>
         <Panel>
-          <StatusIndicator label="AI PROVIDER" state="inactive" detail="not configured — sources-only RAG" />
+          <StatusIndicator
+            label="AI PROVIDER"
+            state={aiOn ? "healthy" : "inactive"}
+            detail={aiOn ? "configured" : "not configured — sources-only RAG"}
+          />
         </Panel>
       </div>
     </div>
