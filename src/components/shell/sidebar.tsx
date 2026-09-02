@@ -82,21 +82,32 @@ export function Sidebar() {
         collapsed ? "w-12" : "w-60"
       }`}
     >
-      <div className="flex h-14 items-center gap-2 border-b border-line-subtle px-3">
-        {!collapsed && (
-          <span className="truncate font-display text-sm font-bold tracking-widest text-fg-primary">
-            VANGUARD
-          </span>
+      <div className="flex h-14 items-center border-b border-line-subtle">
+        {collapsed ? (
+          <button
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+            onClick={() => setCollapsed(false)}
+            className="mx-auto rounded-sm p-1.5 text-fg-secondary hover:bg-hover hover:text-fg-primary"
+          >
+            <PanelLeft size={18} strokeWidth={1.75} />
+          </button>
+        ) : (
+          <div className="flex w-full items-center gap-2 px-3">
+            <span className="truncate font-display text-sm font-bold tracking-widest text-fg-primary">
+              VANGUARD
+            </span>
+            <span className="text-xs text-fg-muted">ops</span>
+            <button
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              onClick={() => setCollapsed(true)}
+              className="ml-auto rounded-sm p-1 text-fg-secondary hover:bg-hover hover:text-fg-primary"
+            >
+              <PanelLeft size={16} strokeWidth={1.75} />
+            </button>
+          </div>
         )}
-        <span className="text-xs text-fg-muted">ops</span>
-        <button
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          onClick={() => setCollapsed(!collapsed)}
-          className="ml-auto rounded-sm p-1 text-fg-secondary hover:bg-hover hover:text-fg-primary"
-        >
-          <PanelLeft size={16} strokeWidth={1.75} />
-        </button>
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
@@ -168,13 +179,15 @@ export function Sidebar() {
         <Link
           href="/settings/account"
           title="Settings"
-          className={`flex items-center gap-2.5 rounded-sm px-3 py-1.5 text-[13px] ${
-            collapsed ? "justify-center px-1" : ""
-          } ${
-            pathname.startsWith("/settings")
-              ? "border-l-[3px] border-l-signal bg-raised text-fg-primary"
-              : "border-l-[3px] border-l-transparent text-fg-secondary hover:bg-hover hover:text-fg-primary"
-          }`}
+          className={
+            collapsed
+              ? "flex items-center justify-center rounded-sm p-2 text-fg-secondary hover:bg-hover hover:text-fg-primary"
+              : `flex items-center gap-2.5 rounded-sm px-3 py-1.5 text-[13px] ${
+                  pathname.startsWith("/settings")
+                    ? "border-l-[3px] border-l-signal bg-raised text-fg-primary"
+                    : "border-l-[3px] border-l-transparent text-fg-secondary hover:bg-hover hover:text-fg-primary"
+                }`
+          }
         >
           <Settings size={18} strokeWidth={1.75} />
           {!collapsed && <span>Settings</span>}

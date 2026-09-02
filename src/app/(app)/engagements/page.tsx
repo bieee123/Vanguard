@@ -40,27 +40,26 @@ export default async function EngagementsPage() {
         <EmptyState message="No engagements yet." />
       ) : (
         <Panel>
-          <table className="table-dense">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Application</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Phase</th>
-                <th>Open Findings</th>
-                <th>Dates</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map((p) => (
-                <tr key={p.id}>
-                  <td className="font-mono text-fg-primary">
-                    <Link href={`/engagements/${p.id}`} className="hover:underline">
-                      {p.code}
-                    </Link>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="table-dense w-full min-w-[52rem]">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Name</th>
+                  <th>Application</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Phase</th>
+                  <th>Open Findings</th>
+                  <th>Dates</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.map((p) => (
+                  <tr key={p.id}>
+                    <td className="font-mono text-fg-primary">
+                      <Link href={`/engagements/${p.id}`}>{p.code}</Link>
+                    </td>
                   <td className="font-medium">{p.name}</td>
                   <td>{p.application.name}</td>
                   <td className="text-xs">{p.type.replace(/_/g, " ")}</td>
@@ -92,7 +91,8 @@ export default async function EngagementsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         </Panel>
       )}
     </div>
