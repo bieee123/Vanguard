@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import { BackLink } from "@/components/ui/back-link";
 import { Panel } from "@/components/ui/panel";
 import { ApplicationForm } from "../_components/application-form";
 
@@ -9,9 +9,7 @@ export default function NewApplicationPage() {
       <Panel>
         <ApplicationForm />
       </Panel>
-      <Link href="/applications" className="text-xs text-fg-muted hover:underline">
-        ← Back to applications
-      </Link>
+      <BackLink href="/applications">Back to applications</BackLink>
     </div>
   );
 }

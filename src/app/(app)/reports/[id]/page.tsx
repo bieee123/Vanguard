@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BackLink } from "@/components/ui/back-link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
@@ -230,9 +231,7 @@ export default async function ReportBuilderPage({ params }: { params: Promise<{ 
         </div>
       </Panel>
 
-      <Link href="/reports" className="text-xs text-fg-muted hover:underline">
-        ← Back to reports
-      </Link>
+      <BackLink href="/reports">Back to reports</BackLink>
     </div>
   );
 }

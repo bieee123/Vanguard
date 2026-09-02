@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BackLink } from "@/components/ui/back-link";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -86,9 +87,7 @@ export default async function NewEngagementPage() {
           </form>
         </Panel>
       )}
-      <Link href="/engagements" className="text-xs text-fg-muted hover:underline">
-        ← Back to engagements
-      </Link>
+      <BackLink href="/engagements">Back to engagements</BackLink>
     </div>
   );
 }

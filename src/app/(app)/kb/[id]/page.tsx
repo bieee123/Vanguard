@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BackLink } from "@/components/ui/back-link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
@@ -99,9 +100,7 @@ export default async function NoteViewPage({ params }: { params: Promise<{ id: s
         </div>
       </div>
 
-      <Link href="/kb" className="text-xs text-fg-muted hover:underline">
-        ← Back to knowledge base
-      </Link>
+      <BackLink href="/kb">Back to knowledge base</BackLink>
     </div>
   );
 }

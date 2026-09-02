@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BackLink } from "@/components/ui/back-link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
@@ -81,9 +82,7 @@ export default async function ApplicationDetailPage({
         </div>
       </Panel>
 
-      <Link href="/applications" className="text-xs text-fg-muted hover:underline">
-        ← Back to applications
-      </Link>
+      <BackLink href="/applications">Back to applications</BackLink>
     </div>
   );
 }

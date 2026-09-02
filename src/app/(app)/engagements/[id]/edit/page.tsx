@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BackLink } from "@/components/ui/back-link";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { StatusBadge } from "@/components/ui/badge";
@@ -106,9 +106,7 @@ export default async function EngagementEditPage({
         </div>
       </Panel>
 
-      <Link href={`/engagements/${project.id}`} className="text-xs text-fg-muted hover:underline">
-        ← Back to engagement
-      </Link>
+      <BackLink href={`/engagements/${project.id}`}>Back to engagement</BackLink>
     </div>
   );
 }

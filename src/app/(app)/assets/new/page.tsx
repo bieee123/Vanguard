@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import { BackLink } from "@/components/ui/back-link";
 import { Panel } from "@/components/ui/panel";
 import { createAsset } from "@/server/actions/assets";
 
@@ -72,9 +72,7 @@ export default function NewAssetPage() {
           <button className="btn btn-primary">Create Asset</button>
         </form>
       </Panel>
-      <Link href="/assets" className="text-xs text-fg-muted hover:underline">
-        ← Back to assets
-      </Link>
+      <BackLink href="/assets">Back to assets</BackLink>
     </div>
   );
 }

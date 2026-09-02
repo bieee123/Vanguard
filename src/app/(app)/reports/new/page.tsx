@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BackLink } from "@/components/ui/back-link";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -63,9 +64,7 @@ export default async function NewReportPage({
           <button className="btn btn-primary">Create draft</button>
         </form>
       </Panel>
-      <Link href="/reports" className="text-xs text-fg-muted hover:underline">
-        ← Back to reports
-      </Link>
+      <BackLink href="/reports">Back to reports</BackLink>
     </div>
   );
 }

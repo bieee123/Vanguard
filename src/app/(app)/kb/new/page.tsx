@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import { BackLink } from "@/components/ui/back-link";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { NoteEditor } from "../note-editor";
@@ -28,10 +28,10 @@ export default async function NewNotePage({
               Engagement (optional)
             </label>
             <select id="projectId" name="projectId" className="input" defaultValue="">
-              <option value="">—</option>
+              <option value="">â€”</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.code} — {p.application.name}
+                  {p.code} â€” {p.application.name}
                 </option>
               ))}
             </select>
@@ -49,9 +49,7 @@ export default async function NewNotePage({
           </label>
           <div className="flex items-center gap-3">
             <button className="btn btn-primary">Create note</button>
-            <Link href="/kb" className="text-xs text-fg-muted hover:underline">
-              Cancel
-            </Link>
+            <BackLink href="/kb">Cancel</BackLink>
           </div>
         </form>
       </Panel>
