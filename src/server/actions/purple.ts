@@ -74,7 +74,7 @@ export async function createTimelineEntry(fd: FormData) {
   revalidatePath("/timeline");
   revalidatePath("/attack-matrix");
   revalidatePath(`/engagements/${projectId}`);
-  flashOk("/timeline", "Entry logged");
+  await flashOk("/timeline", "Entry logged");
 }
 
 export async function updateTimelineOutcome(fd: FormData) {
@@ -138,7 +138,7 @@ export async function confirmVerdict(fd: FormData) {
     resourceId: existing.id,
     details: { timelineEntryId, verdict: override ?? existing.verdict },
   });
-    flashOk("/timeline", "Verdict confirmed");
+    await flashOk("/timeline", "Verdict confirmed");
   revalidatePath("/timeline");
   revalidatePath("/attack-matrix");
 }
@@ -205,7 +205,7 @@ export async function createRuleRequest(fd: FormData) {
   });
   revalidatePath("/rule-requests");
   revalidatePath("/attack-matrix");
-  flashOk("/rule-requests", "Draft created in backlog");
+  await flashOk("/rule-requests", "Draft created in backlog");
 }
 
 async function transition(rrId: string, to: RuleStatus, extra?: { approvedBy?: string; rejectionReason?: string }) {
@@ -262,14 +262,14 @@ export async function submitRuleRequest(fd: FormData) {
       details: { sentinel: true },
     });
     revalidatePath("/attack-matrix");
-    flashOk("/rule-requests", "Submitted to Sentinel for review");
+    await flashOk("/rule-requests", "Submitted to Sentinel for review");
     return;
   }
 
   const via = await transition(id, "pending_review");
   await audit({ userId: user.id, action: `rule_request:${via}`, resourceType: "rule_request", resourceId: id });
   revalidatePath("/attack-matrix");
-  flashOk("/rule-requests", "Submitted for review");
+  await flashOk("/rule-requests", "Submitted for review");
 }
 
 /** Sync a rule request's lifecycle from Sentinel (approve/deploy/reject land here). */
@@ -321,7 +321,7 @@ export async function refreshRuleStatus(fd: FormData) {
   }
   revalidatePath("/attack-matrix");
   revalidatePath("/rule-requests");
-  flashOk("/rule-requests", changed ? `Synced — status is now ${next.replace(/_/g, " ")}` : "No change");
+  await flashOk("/rule-requests", changed ? `Synced — status is now ${next.replace(/_/g, " ")}` : "No change");
 }
 
 /**
@@ -344,7 +344,7 @@ export async function sentinelSimulate(fd: FormData) {
   });
   revalidatePath(`/rule-requests/${id}`);
   revalidatePath("/attack-matrix");
-  flashOk("/rule-requests", `Sentinel simulation: ${to.replace(/_/g, " ")}`);
+  await flashOk("/rule-requests", `Sentinel simulation: ${to.replace(/_/g, " ")}`);
 }
 
 /** Operator action after a retest: verified when now detected, back to draft when still missed. */
@@ -376,7 +376,7 @@ export async function verifyRuleRequest(fd: FormData) {
       details: { passed, sentinel: true },
     });
     revalidatePath("/attack-matrix");
-    flashOk(
+    await flashOk(
       "/rule-requests",
       passed ? "Retest passed - rule verified" : "Still undetected - back to draft"
     );
@@ -392,7 +392,7 @@ export async function verifyRuleRequest(fd: FormData) {
     details: { passed },
   });
   revalidatePath("/attack-matrix");
-  flashOk(
+  await flashOk(
     "/rule-requests",
     passed ? "Retest passed - rule verified" : "Still undetected - back to draft"
   );

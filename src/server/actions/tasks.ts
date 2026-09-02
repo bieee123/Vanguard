@@ -44,7 +44,7 @@ export async function createTask(fd: FormData) {
     details: { projectId, title },
   });
   revalidatePath("/tasks?project="+projectId);
-  flashOk("/tasks?project="+projectId, "Task added");
+  await flashOk("/tasks?project="+projectId, "Task added");
 }
 
 export async function moveTask(fd: FormData) {
@@ -71,7 +71,7 @@ export async function moveTask(fd: FormData) {
       details: { before: before.status, after: status },
     });
   }
-  flashOk("/tasks?project=" + before.projectId, "Task moved");
+  await flashOk("/tasks?project=" + before.projectId, "Task moved");
 }
 
 export async function deleteTask(fd: FormData) {
@@ -86,5 +86,5 @@ export async function deleteTask(fd: FormData) {
     resourceId: id,
     details: { title: task.title, projectId: task.projectId },
   });
-  flashOk("/tasks?project="+task.projectId, "Task deleted");
+  await flashOk("/tasks?project="+task.projectId, "Task deleted");
 }

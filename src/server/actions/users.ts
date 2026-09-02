@@ -49,7 +49,7 @@ export async function adminCreateUser(fd: FormData) {
     resourceId: created?.id ?? null,
     details: { email: created?.email, username: username || null },
   });
-  flashOk(BACK, `User ${created?.email ?? ""} created`);
+  await flashOk(BACK, `User ${created?.email ?? ""} created`);
 }
 
 export async function adminResetPassword(fd: FormData) {
@@ -64,7 +64,7 @@ export async function adminResetPassword(fd: FormData) {
     flashErr(BACK, e instanceof Error ? e.message : "Reset failed");
   }
   await audit({ userId: user.id, action: "reset_password", resourceType: "user", resourceId: userId });
-  flashOk(BACK, "Password reset");
+  await flashOk(BACK, "Password reset");
 }
 
 export async function adminRemoveUser(fd: FormData) {
@@ -78,7 +78,7 @@ export async function adminRemoveUser(fd: FormData) {
     flashErr(BACK, e instanceof Error ? e.message : "Remove failed");
   }
   await audit({ userId: current.user.id, action: "delete", resourceType: "user", resourceId: userId });
-  flashOk(BACK, "User removed");
+  await flashOk(BACK, "User removed");
 }
 
 export async function updateProfile(fd: FormData) {
@@ -92,5 +92,5 @@ export async function updateProfile(fd: FormData) {
     resourceId: user.id,
     details: { before: { name: user.name }, after: { name } },
   });
-  flashOk("/settings/account", "Profile saved");
+  await flashOk("/settings/account", "Profile saved");
 }

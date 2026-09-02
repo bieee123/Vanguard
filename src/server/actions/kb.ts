@@ -65,7 +65,7 @@ export async function createNote(fd: FormData) {
     resourceId: note.id,
     details: { title },
   });
-  flashOk(`/kb/${note.id}`, "Note created");
+  await flashOk(`/kb/${note.id}`, "Note created");
 }
 
 function listTags(fd: FormData): string[] {
@@ -91,7 +91,7 @@ export async function updateNote(fd: FormData) {
   await syncLinksAndTags(id, bodyMarkdown, listTags(fd));
   await enqueueNoteEmbedding(id);
   await audit({ userId: user.id, action: "update", resourceType: "note", resourceId: id });
-  flashOk(`/kb/${id}`, "Note saved");
+  await flashOk(`/kb/${id}`, "Note saved");
   revalidatePath("/kb");
 }
 

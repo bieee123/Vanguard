@@ -65,7 +65,7 @@ export async function createFinding(fd: FormData) {
     resourceId: finding.id,
     details: { projectId, title, severity: finding.severity },
   });
-  flashOk(`/findings/${finding.id}`, "Finding created");
+  await flashOk(`/findings/${finding.id}`, "Finding created");
 }
 
 export async function updateFinding(fd: FormData) {
@@ -105,7 +105,7 @@ export async function updateFinding(fd: FormData) {
     resourceId: id,
     details: { before: { severity: before.severity, status: before.status } },
   });
-  flashOk(/findings/+id, "Saved");
+  await flashOk(/findings/+id, "Saved");
 }
 
 export async function setFindingStatus(fd: FormData) {
@@ -121,7 +121,7 @@ export async function setFindingStatus(fd: FormData) {
     resourceId: id,
     details: { after: status },
   });
-  flashOk(/findings/+id, "Status updated");
+  await flashOk(/findings/+id, "Status updated");
 }
 
 export async function deleteFinding(fd: FormData) {
@@ -138,7 +138,7 @@ export async function deleteFinding(fd: FormData) {
   });
   revalidatePath("/findings");
   revalidatePath(`/engagements/${finding.projectId}`);
-  flashOk("/findings", "Finding deleted");
+  await flashOk("/findings", "Finding deleted");
 }
 
 // â”€â”€ Finding â†” asset links â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -156,7 +156,7 @@ export async function linkFindingAsset(fd: FormData) {
     resourceId: findingId,
     details: { assetId },
   });
-  flashOk(`/findings/${findingId}`, "Asset linked");
+  await flashOk(`/findings/${findingId}`, "Asset linked");
 }
 
 export async function unlinkFindingAsset(fd: FormData) {
@@ -174,7 +174,7 @@ export async function unlinkFindingAsset(fd: FormData) {
     resourceId: findingId,
     details: { assetId },
   });
-  flashOk(`/findings/${findingId}`, "Asset unlinked");
+  await flashOk(`/findings/${findingId}`, "Asset unlinked");
 }
 
 // â”€â”€ Observations (per project, non-actionable) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -199,7 +199,7 @@ export async function createObservation(fd: FormData) {
     resourceId: obs.id,
     details: { projectId, title },
   });
-  flashOk(`/engagements/${projectId}`, "Observation added");
+  await flashOk(`/engagements/${projectId}`, "Observation added");
 }
 
 export async function deleteObservation(fd: FormData) {
@@ -208,7 +208,7 @@ export async function deleteObservation(fd: FormData) {
   if (!id) flashErr("/findings", "Missing id");
   const obs = await prisma.observation.delete({ where: { id } });
   await audit({ userId: user.id, action: "delete", resourceType: "observation", resourceId: id });
-  flashOk(`/engagements/${obs.projectId}`, "Observation deleted");
+  await flashOk(`/engagements/${obs.projectId}`, "Observation deleted");
 }
 
 // â”€â”€ Finding types management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -226,7 +226,7 @@ export async function addFindingType(fd: FormData) {
     details: { name },
   });
   revalidatePath("/settings/findings");
-  flashOk("/settings/findings", "Saved");
+  await flashOk("/settings/findings", "Saved");
 }
 
 export async function deleteFindingType(fd: FormData) {
@@ -236,5 +236,5 @@ export async function deleteFindingType(fd: FormData) {
   await prisma.findingType.delete({ where: { id } });
   await audit({ userId: user.id, action: "delete", resourceType: "finding_type", resourceId: id });
   revalidatePath("/settings/findings");
-  flashOk("/settings/findings", "Saved");
+  await flashOk("/settings/findings", "Saved");
 }

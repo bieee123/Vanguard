@@ -33,7 +33,7 @@ export async function createApplication(fd: FormData) {
     details: { name },
   });
   revalidatePath("/applications");
-  flashOk(`/applications/${app.id}`, "Application created");
+  await flashOk(`/applications/${app.id}`, "Application created");
 }
 
 export async function updateApplication(fd: FormData) {
@@ -61,7 +61,7 @@ export async function updateApplication(fd: FormData) {
     details: { before: { name: before.name }, after: { name } },
   });
   revalidatePath("/applications");
-  flashOk(`/applications/${id}`, "Saved");
+  await flashOk(`/applications/${id}`, "Saved");
 }
 
 export async function deleteApplication(fd: FormData) {
@@ -76,5 +76,5 @@ export async function deleteApplication(fd: FormData) {
     flashErr("/applications", "Cannot delete an application that still has engagements");
   }
   await audit({ userId: user.id, action: "delete", resourceType: "application", resourceId: id });
-  flashOk("/applications", "Application deleted");
+  await flashOk("/applications", "Application deleted");
 }

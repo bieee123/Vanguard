@@ -32,7 +32,7 @@ export async function addObjective(fd: FormData) {
     details: { projectId, title: objective.title },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "Objective added");
+  await flashOk(`/engagements/${projectId}`, "Objective added");
 }
 
 export async function updateObjectiveStatus(fd: FormData) {
@@ -49,7 +49,7 @@ export async function updateObjectiveStatus(fd: FormData) {
     details: { after: status },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, `Objective set to ${status.replace(/_/g, " ")}`);
+  await flashOk(`/engagements/${projectId}`, `Objective set to ${status.replace(/_/g, " ")}`);
 }
 
 export async function deleteObjective(fd: FormData) {
@@ -59,7 +59,7 @@ export async function deleteObjective(fd: FormData) {
   await prisma.projectObjective.delete({ where: { id } });
   await audit({ userId: user.id, action: "delete", resourceType: "objective", resourceId: id });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "Objective deleted");
+  await flashOk(`/engagements/${projectId}`, "Objective deleted");
 }
 
 export async function addSubTask(fd: FormData) {
@@ -76,7 +76,7 @@ export async function addSubTask(fd: FormData) {
     details: { projectId, title: subTask.title },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "Subtask added");
+  await flashOk(`/engagements/${projectId}`, "Subtask added");
 }
 
 export async function toggleSubTask(fd: FormData) {
@@ -123,7 +123,7 @@ export async function addScopeItem(fd: FormData) {
     details: { projectId, value: item.value },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "Scope item added");
+  await flashOk(`/engagements/${projectId}`, "Scope item added");
 }
 
 export async function deleteScopeItem(fd: FormData) {
@@ -153,7 +153,7 @@ export async function addTarget(fd: FormData) {
     details: { projectId, value: target.value },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "Target added");
+  await flashOk(`/engagements/${projectId}`, "Target added");
 }
 
 export async function deleteTarget(fd: FormData) {
@@ -180,7 +180,7 @@ export async function addProjectNote(fd: FormData) {
     details: { projectId },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "Note added");
+  await flashOk(`/engagements/${projectId}`, "Note added");
 }
 
 export async function deleteProjectNote(fd: FormData) {
@@ -210,7 +210,7 @@ export async function addDeconfliction(fd: FormData) {
     details: { projectId },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "Deconfliction logged");
+  await flashOk(`/engagements/${projectId}`, "Deconfliction logged");
 }
 
 export async function resolveDeconfliction(fd: FormData) {
@@ -219,7 +219,7 @@ export async function resolveDeconfliction(fd: FormData) {
   await prisma.deconfliction.update({ where: { id }, data: { resolved: true } });
   await audit({ userId: user.id, action: "update", resourceType: "deconfliction", resourceId: id });
   revalidatePath(`/engagements/${req(fd, "projectId")}`);
-  flashOk(`/engagements/${req(fd, "projectId")}`, "Deconfliction resolved");
+  await flashOk(`/engagements/${req(fd, "projectId")}`, "Deconfliction resolved");
 }
 
 export async function addWhiteCard(fd: FormData) {
@@ -236,7 +236,7 @@ export async function addWhiteCard(fd: FormData) {
     details: { projectId },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "White card issued");
+  await flashOk(`/engagements/${projectId}`, "White card issued");
 }
 
 // ── Assignments ──────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ export async function assignUser(fd: FormData) {
     details: { projectId, userId },
   });
   revalidatePath(`/engagements/${projectId}`);
-  flashOk(`/engagements/${projectId}`, "Member assigned");
+  await flashOk(`/engagements/${projectId}`, "Member assigned");
 }
 
 export async function unassignUser(fd: FormData) {
@@ -270,5 +270,5 @@ export async function unassignUser(fd: FormData) {
     resourceId: id,
   });
   revalidatePath(`/engagements/${req(fd, "projectId")}`);
-  flashOk(`/engagements/${req(fd, "projectId")}`, "Member removed");
+  await flashOk(`/engagements/${req(fd, "projectId")}`, "Member removed");
 }

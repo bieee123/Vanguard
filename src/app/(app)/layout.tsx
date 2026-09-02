@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { FlashMessage } from "@/components/ui/flash";
+import { FlashCookie } from "@/components/ui/flash-cookie-server";
 import { requireUser } from "@/lib/session";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -16,6 +17,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Suspense>
         <FlashMessage />
       </Suspense>
+      <FlashCookie />
     </div>
   );
 }

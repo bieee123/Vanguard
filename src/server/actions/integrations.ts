@@ -12,6 +12,6 @@ export async function testSentinelConnection() {
     return;
   }
   const { ok, message } = await healthProbe();
-  if (ok) flashOk("/settings/integrations", `Connected — ${message}`);
+  if (ok) await flashOk("/settings/integrations", `Connected — ${message}`);
   else flashErr("/settings/integrations", `Connection failed — ${message}`);
 }

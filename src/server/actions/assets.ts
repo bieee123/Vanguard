@@ -35,7 +35,7 @@ export async function createAsset(fd: FormData) {
     resourceId: asset.id,
     details: { hostname, ipAddress },
   });
-  flashOk(`/assets/${asset.id}`, "Asset created");
+  await flashOk(`/assets/${asset.id}`, "Asset created");
 }
 
 export async function updateAsset(fd: FormData) {
@@ -61,7 +61,7 @@ export async function updateAsset(fd: FormData) {
   });
   await audit({ userId: user.id, action: "update", resourceType: "asset", resourceId: id });
   revalidatePath("/assets");
-  flashOk(/assets/+id, "Saved");
+  await flashOk(/assets/+id, "Saved");
 }
 
 export async function deleteAsset(fd: FormData) {
@@ -70,7 +70,7 @@ export async function deleteAsset(fd: FormData) {
   if (!id) throw new Error("Missing id");
   await prisma.asset.delete({ where: { id } });
   await audit({ userId: user.id, action: "delete", resourceType: "asset", resourceId: id });
-  flashOk("/assets", "Asset deleted");
+  await flashOk("/assets", "Asset deleted");
 }
 
 export async function linkAssetToEngagement(fd: FormData) {

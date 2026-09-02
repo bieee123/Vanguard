@@ -42,7 +42,7 @@ export async function createEngagement(fd: FormData) {
     resourceId: project.id,
     details: { code: project.code, name },
   });
-  flashOk(`/engagements/${project.id}`, "Engagement created");
+  await flashOk(`/engagements/${project.id}`, "Engagement created");
 }
 
 export async function updateEngagement(fd: FormData) {
@@ -85,7 +85,7 @@ export async function updateEngagement(fd: FormData) {
       details: { before: before.phase, after: phase },
     });
   }
-  flashOk(`/engagements/${id}`, "Saved");
+  await flashOk(`/engagements/${id}`, "Saved");
 }
 
 export async function deleteEngagement(fd: FormData) {
@@ -101,5 +101,5 @@ export async function deleteEngagement(fd: FormData) {
     resourceId: id,
     details: { code: project.code },
   });
-  flashOk("/engagements", "Engagement deleted");
+  await flashOk("/engagements", "Engagement deleted");
 }

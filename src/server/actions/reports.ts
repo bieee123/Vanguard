@@ -40,7 +40,7 @@ export async function createReport(fd: FormData) {
     resourceId: report.id,
     details: { projectId, title },
   });
-  flashOk(`/reports/${report.id}`, "Draft created");
+  await flashOk(`/reports/${report.id}`, "Draft created");
 }
 
 export async function updateReport(fd: FormData) {
@@ -56,7 +56,7 @@ export async function updateReport(fd: FormData) {
     },
   });
   await audit({ userId: user.id, action: "update", resourceType: "report", resourceId: id });
-  flashOk(`/reports/${id}`, "Narrative saved");
+  await flashOk(`/reports/${id}`, "Narrative saved");
 }
 
 export async function generateReport(fd: FormData) {
@@ -66,7 +66,7 @@ export async function generateReport(fd: FormData) {
   await prisma.report.update({ where: { id }, data: { status: "queued" } });
   await enqueueReportGeneration(id);
   await audit({ userId: user.id, action: "generate", resourceType: "report", resourceId: id });
-  flashOk(`/reports/${id}`, "Queued for generation");
+  await flashOk(`/reports/${id}`, "Queued for generation");
   revalidatePath(`/reports/${id}`);
 }
 
@@ -80,7 +80,7 @@ export async function archiveReport(fd: FormData) {
   });
   await audit({ userId: user.id, action: "archive", resourceType: "report", resourceId: id });
   revalidatePath("/reports");
-  flashOk(`/reports/${id}`, "Archived");
+  await flashOk(`/reports/${id}`, "Archived");
   revalidatePath(`/reports/${id}`);
 }
 
@@ -91,7 +91,7 @@ export async function unarchiveReport(fd: FormData) {
   await prisma.report.update({ where: { id }, data: { archivedAt: null } });
   await audit({ userId: user.id, action: "unarchive", resourceType: "report", resourceId: id });
   revalidatePath("/reports");
-  flashOk(`/reports/${id}`, "Restored");
+  await flashOk(`/reports/${id}`, "Restored");
   revalidatePath(`/reports/${id}`);
 }
 
@@ -108,7 +108,7 @@ export async function deleteReport(fd: FormData) {
     resourceId: id,
     details: { title: report.title },
   });
-  flashOk("/reports", "Report deleted");
+  await flashOk("/reports", "Report deleted");
   redirect("/reports");
 }
 
@@ -169,7 +169,7 @@ export async function cloneReport(fd: FormData) {
     resourceId: clone.id,
     details: { from: source.id },
   });
-  flashOk(`/reports/${clone.id}`, "Cloned");
+  await flashOk(`/reports/${clone.id}`, "Cloned");
   revalidatePath("/reports");
   redirect(`/reports/${clone.id}`);
 }
@@ -223,7 +223,7 @@ export async function removeReportFinding(fd: FormData) {
   if (!id || !reportId) flashErr(`/reports/${reportId}`, "Missing fields");
   await prisma.reportFinding.delete({ where: { id } });
   await audit({ userId: user.id, action: "remove_finding", resourceType: "report", resourceId: reportId });
-  flashOk(`/reports/${reportId}`, "Finding removed");
+  await flashOk(`/reports/${reportId}`, "Finding removed");
   revalidatePath(`/reports/${reportId}`);
 }
 
@@ -275,7 +275,7 @@ export async function uploadEvidence(fd: FormData) {
     resourceId: row.id,
     details: { reportId, file: file.name },
   });
-  flashOk(`/reports/${reportId}`, "Evidence uploaded");
+  await flashOk(`/reports/${reportId}`, "Evidence uploaded");
   revalidatePath(`/reports/${reportId}`);
 }
 
@@ -288,6 +288,6 @@ export async function deleteEvidence(fd: FormData) {
   await audit({ userId: user.id, action: "delete_evidence", resourceType: "evidence", resourceId: id });
   if (row.reportId) {
     revalidatePath(`/reports/${row.reportId}`);
-    flashOk(`/reports/${row.reportId}`, "Evidence deleted");
+    await flashOk(`/reports/${row.reportId}`, "Evidence deleted");
   }
 }

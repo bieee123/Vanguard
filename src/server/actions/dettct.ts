@@ -69,5 +69,5 @@ export async function importDettctRun(fd: FormData) {
     details: { covered: `${snap.covered}/${snap.total}`, name: snap.name },
   });
   revalidatePath("/dettct");
-  flashOk("/dettct", `Imported: ${snap.covered}/${snap.total} techniques covered`);
+  await flashOk("/dettct", `Imported: ${snap.covered}/${snap.total} techniques covered`);
 }
