@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ChevronDown,
   LayoutDashboard,
   Building2,
   Swords,
@@ -15,64 +17,167 @@ import {
   Radar,
   FileText,
   KanbanSquare,
+  PanelLeft,
   Settings,
+  type LucideIcon,
 } from "lucide-react";
 
-const NAV = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/applications", label: "Applications", icon: Building2 },
-  { href: "/engagements", label: "Engagements", icon: Swords },
-  { href: "/assets", label: "Assets", icon: Boxes },
-  { href: "/findings", label: "Findings", icon: Bug },
-  { href: "/attack-matrix", label: "ATT&CK Matrix", icon: Grid3X3 },
-  { href: "/timeline", label: "Timeline", icon: Clock },
-  { href: "/rule-requests", label: "Rule Requests", icon: ShieldAlert },
-  { href: "/kb", label: "Knowledge Base", icon: BookOpen },
-  { href: "/dettct", label: "DeTT&CT Coverage", icon: Radar },
-  { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/tasks", label: "Tasks", icon: KanbanSquare },
+type NavItem = { href: string; label: string; icon: LucideIcon };
+type NavGroup = { label: string; items: NavItem[] };
+
+const GROUPS: NavGroup[] = [
+  {
+    label: "Operations",
+    items: [
+      { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/engagements", label: "Engagements", icon: Swords },
+      { href: "/timeline", label: "Timeline", icon: Clock },
+      { href: "/tasks", label: "Tasks", icon: KanbanSquare },
+    ],
+  },
+  {
+    label: "Findings",
+    items: [
+      { href: "/findings", label: "Findings", icon: Bug },
+      { href: "/attack-matrix", label: "ATT&CK Matrix", icon: Grid3X3 },
+      { href: "/rule-requests", label: "Rule Requests", icon: ShieldAlert },
+      { href: "/dettct", label: "DeTT&CT Coverage", icon: Radar },
+    ],
+  },
+  {
+    label: "Inventory",
+    items: [
+      { href: "/applications", label: "Applications", icon: Building2 },
+      { href: "/assets", label: "Assets", icon: Boxes },
+    ],
+  },
+  {
+    label: "Knowledge",
+    items: [
+      { href: "/kb", label: "Knowledge Base", icon: BookOpen },
+      { href: "/reports", label: "Reports", icon: FileText },
+    ],
+  },
 ];
+
+function itemActive(pathname: string, href: string): boolean {
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+  // ponytail: one flat set of open groups, default all open; persisted per-mount only.
+  // Persist group state in localStorage if deep-navigation UX demands it.
+  const [open, setOpen] = useState<Record<string, boolean>>(
+    Object.fromEntries(GROUPS.map((g) => [g.label, true]))
+  );
+
+  const toggleGroup = (label: string) =>
+    setOpen((o) => ({ ...o, [label]: !o[label] }));
+
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-line-subtle bg-panel">
-      <div className="flex h-14 items-center gap-2 border-b border-line-subtle px-4">
-        <span className="font-display text-sm font-bold tracking-widest text-fg-primary">
-          VANGUARD
-        </span>
+    <aside
+      className={`flex shrink-0 flex-col border-r border-line-subtle bg-panel transition-[width] duration-150 ${
+        collapsed ? "w-12" : "w-60"
+      }`}
+    >
+      <div className="flex h-14 items-center gap-2 border-b border-line-subtle px-3">
+        {!collapsed && (
+          <span className="truncate font-display text-sm font-bold tracking-widest text-fg-primary">
+            VANGUARD
+          </span>
+        )}
         <span className="text-xs text-fg-muted">ops</span>
+        <button
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={() => setCollapsed(!collapsed)}
+          className="ml-auto rounded-sm p-1 text-fg-secondary hover:bg-hover hover:text-fg-primary"
+        >
+          <PanelLeft size={16} strokeWidth={1.75} />
+        </button>
       </div>
-      <nav className="flex flex-1 flex-col gap-0.5 p-2">
-        {NAV.map(({ href, label, icon: Icon }) => {
-          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+        {GROUPS.map((group) => {
+          const isOpen = open[group.label];
+          if (collapsed) {
+            return (
+              <div key={group.label} className="space-y-0.5">
+                {group.items.map(({ href, label, icon: Icon }) => {
+                  const active = itemActive(pathname, href);
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      title={label}
+                      className={`flex items-center justify-center rounded-sm px-1 py-2 ${
+                        active
+                          ? "border-l-[3px] border-l-signal bg-raised text-fg-primary"
+                          : "border-l-[3px] border-l-transparent text-fg-secondary hover:bg-hover hover:text-fg-primary"
+                      }`}
+                    >
+                      <Icon size={18} strokeWidth={1.75} />
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          }
           return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-2.5 rounded-sm px-3 py-1.5 text-[13px] ${
-                active
-                  ? "border-l-[3px] border-l-signal bg-raised text-fg-primary"
-                  : "border-l-[3px] border-l-transparent text-fg-secondary hover:bg-hover hover:text-fg-primary"
-              }`}
-            >
-              <Icon size={18} strokeWidth={1.75} />
-              {label}
-            </Link>
+            <div key={group.label}>
+              <button
+                onClick={() => toggleGroup(group.label)}
+                className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-fg-muted hover:bg-hover hover:text-fg-primary"
+              >
+                <ChevronDown
+                  size={12}
+                  strokeWidth={2}
+                  className={`shrink-0 transition-transform ${isOpen ? "" : "-rotate-90"}`}
+                />
+                {group.label}
+              </button>
+              {isOpen && (
+                <div className="mb-1 mt-0.5 space-y-0.5">
+                  {group.items.map(({ href, label, icon: Icon }) => {
+                    const active = itemActive(pathname, href);
+                    return (
+                      <Link
+                        key={href}
+                        href={href}
+                        className={`flex items-center gap-2.5 rounded-sm px-3 py-1.5 text-[13px] ${
+                          active
+                            ? "border-l-[3px] border-l-signal bg-raised text-fg-primary"
+                            : "border-l-[3px] border-l-transparent text-fg-secondary hover:bg-hover hover:text-fg-primary"
+                        }`}
+                      >
+                        <Icon size={18} strokeWidth={1.75} />
+                        {label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>
-      <div className="p-2">
+
+      <div className="border-t border-line-subtle p-2">
         <Link
           href="/settings/account"
+          title="Settings"
           className={`flex items-center gap-2.5 rounded-sm px-3 py-1.5 text-[13px] ${
+            collapsed ? "justify-center px-1" : ""
+          } ${
             pathname.startsWith("/settings")
               ? "border-l-[3px] border-l-signal bg-raised text-fg-primary"
               : "border-l-[3px] border-l-transparent text-fg-secondary hover:bg-hover hover:text-fg-primary"
           }`}
         >
           <Settings size={18} strokeWidth={1.75} />
-          Settings
+          {!collapsed && <span>Settings</span>}
         </Link>
       </div>
     </aside>
