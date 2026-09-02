@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ClickableRow } from "@/components/ui/clickable-row";
 import { StatusBadge } from "@/components/ui/badge";
 import { PhaseRail } from "@/components/ui/phase-rail";
 
@@ -56,10 +57,8 @@ export default async function EngagementsPage() {
               </thead>
               <tbody>
                 {projects.map((p) => (
-                  <tr key={p.id}>
-                    <td className="font-mono text-fg-primary">
-                      <Link href={`/engagements/${p.id}`}>{p.code}</Link>
-                    </td>
+                  <ClickableRow key={p.id} href={`/engagements/${p.id}`}>
+                    <td className="font-mono text-fg-primary">{p.code}</td>
                   <td className="font-medium">{p.name}</td>
                   <td>{p.application.name}</td>
                   <td className="text-xs">{p.type.replace(/_/g, " ")}</td>
@@ -88,7 +87,7 @@ export default async function EngagementsPage() {
                     {p.startDate?.toISOString().slice(0, 10) ?? "?"} →{" "}
                     {p.endDate?.toISOString().slice(0, 10) ?? "?"}
                   </td>
-                </tr>
+                </ClickableRow>
               ))}
             </tbody>
             </table>

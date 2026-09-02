@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ClickableRow } from "@/components/ui/clickable-row";
 import { Badge, type BadgeColor } from "@/components/ui/badge";
 
 const CRITICALITY_COLOR: Record<string, BadgeColor> = {
@@ -92,12 +93,10 @@ export default async function AssetsPage({
             </thead>
             <tbody>
               {assets.map((a) => (
-                <tr key={a.id}>
+                <ClickableRow key={a.id} href={`/assets/${a.id}`}>
                   <td className="font-mono text-xs text-fg-primary">
-                    <Link href={`/assets/${a.id}`} className="hover:underline">
-                      {a.hostname ?? a.ipAddress}
-                      {a.hostname && a.ipAddress && ` (${a.ipAddress})`}
-                    </Link>
+                    {a.hostname ?? a.ipAddress}
+                    {a.hostname && a.ipAddress && ` (${a.ipAddress})`}
                   </td>
                   <td>{a.businessUnit ?? "—"}</td>
                   <td>
@@ -108,7 +107,7 @@ export default async function AssetsPage({
                   </td>
                   <td className="font-mono">{a._count.engagements}</td>
                   <td className="text-xs">{a.discoveredBy ?? "—"}</td>
-                </tr>
+                </ClickableRow>
               ))}
             </tbody>
           </table>

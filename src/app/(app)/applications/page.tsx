@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ClickableRow } from "@/components/ui/clickable-row";
 import { Badge, type BadgeColor } from "@/components/ui/badge";
 
 const CRITICALITY_COLOR: Record<string, BadgeColor> = {
@@ -42,19 +43,15 @@ export default async function ApplicationsPage() {
             </thead>
             <tbody>
               {applications.map((app) => (
-                <tr key={app.id}>
-                  <td className="font-medium text-fg-primary">
-                    <Link href={`/applications/${app.id}`} className="hover:underline">
-                      {app.name}
-                    </Link>
-                  </td>
+                <ClickableRow key={app.id} href={`/applications/${app.id}`}>
+                  <td className="font-medium text-fg-primary">{app.name}</td>
                   <td>
                     <Badge color={CRITICALITY_COLOR[app.criticality]}>{app.criticality}</Badge>
                   </td>
                   <td>{app.owningTeam ?? "—"}</td>
                   <td className="font-mono text-xs">{app.repoUrl ?? "—"}</td>
                   <td className="font-mono">{app._count.projects}</td>
-                </tr>
+                </ClickableRow>
               ))}
             </tbody>
           </table>
