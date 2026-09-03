@@ -10,6 +10,25 @@ const IMAGE_MIME: Record<string, string> = {
   ".webp": "image/webp",
 };
 
+// ponytail: one browser reused across queued generations — launching Chromium per
+// job is the slowest part (~seconds of cold start). Browser is process-lifetime.
+type BrowserHandle = { browser: import("playwright").Browser };
+let browserPromise: Promise<BrowserHandle> | null = null;
+
+async function getBrowser(): Promise<BrowserHandle> {
+  if (!browserPromise) {
+    browserPromise = (async () => {
+      const { chromium } = await import("playwright");
+      const browser = await chromium.launch();
+      return { browser };
+    })().catch((err) => {
+      browserPromise = null;
+      throw err;
+    });
+  }
+  return browserPromise;
+}
+
 /** Renders the report PDF via headless Chromium and stores it. Runs inside the worker process. */
 export async function generateReportPdf(reportId: string): Promise<void> {
   const report = await prisma.report.update({
@@ -23,8 +42,7 @@ export async function generateReportPdf(reportId: string): Promise<void> {
   });
 
   try {
-    const { chromium } = await import("playwright");
-    const browser = await chromium.launch();
+    const { browser } = await getBrowser();
 
     const findings: TemplateFinding[] = report.findings.map((f) => ({
       position: f.position,
@@ -75,7 +93,6 @@ export async function generateReportPdf(reportId: string): Promise<void> {
     const page = await browser.newPage();
     await page.setContent(finalHtml, { waitUntil: "load" });
     const pdf = await page.pdf({ format: "A4", printBackground: true });
-    await browser.close();
 
     const key = `reports/${report.id}.pdf`;
     saveFile(key, Buffer.from(pdf));
