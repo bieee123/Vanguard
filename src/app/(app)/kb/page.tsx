@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { PanelRight } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
+import { Drawer } from "@/components/ui/drawer";
 import { AskKbPanel } from "./ask-kb-panel";
 import { aiConfigured } from "@/lib/ai";
 
@@ -37,19 +39,32 @@ export default async function KbIndexPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl font-semibold">Knowledge Base</h1>
-        <div className="flex gap-2">
-          <Link href="/kb/graph" className="btn btn-secondary">
-            Graph view
-          </Link>
-          <Link href="/kb/new" className="btn btn-primary">
-            New Note
-          </Link>
+        <div className="flex items-center justify-between">
+          <h1 className="font-display text-xl font-semibold">Knowledge Base</h1>
+          <div className="flex items-center gap-2">
+            <Drawer
+              title="AI Ask"
+              widthClass="max-w-2xl"
+              triggerClass="btn btn-secondary inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[13px]"
+              label={
+                <>
+                  <PanelRight size={15} strokeWidth={1.75} />
+                  Ask AI
+                </>
+              }
+            >
+              <AskKbPanel modelLabel={hasProvider ? model : null} />
+            </Drawer>
+            <Link href="/kb/graph" className="btn btn-secondary">
+              Graph view
+            </Link>
+            <Link href="/kb/new" className="btn btn-primary">
+              New Note
+            </Link>
+          </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[12rem_1fr] xl:grid-cols-[12rem_1fr_22rem]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[12rem_1fr]">
         {/* left pane: tag tree (Explore-style filter) */}
         <aside className="space-y-2 self-start rounded-md border border-line-subtle bg-panel p-3">
           <p className="label !mb-1">Tags</p>
@@ -84,14 +99,14 @@ export default async function KbIndexPage({
             <ul className="divide-y divide-line-subtle">
               {notes.map((n) => (
                 <li key={n.id} className="py-2">
-                  <Link href={`/kb/${n.id}`} className="font-medium text-fg-primary hover:underline">
+                  <Link href={`/kb/${n.id}`} className="font-medium text-fg-primary hover:text-fg-primary">
                     {n.title}
                   </Link>
                   <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-fg-muted">
                     <span>updated {n.updatedAt.toISOString().slice(0, 10)}</span>
                     <span>{n._count.linksOut} links · {n.linksIn.length} backlinks</span>
                     {n.tags.map((t) => (
-                      <Link key={t.tag} href={`/kb?tag=${encodeURIComponent(t.tag)}`} className="text-blue hover:underline">
+                      <Link key={t.tag} href={`/kb?tag=${encodeURIComponent(t.tag)}`} className="text-blue hover:text-blue">
                         #{t.tag}
                       </Link>
                     ))}
@@ -103,8 +118,6 @@ export default async function KbIndexPage({
             </ul>
           </Panel>
         </div>
-
-        <AskKbPanel modelLabel={hasProvider ? model : null} />
       </div>
     </div>
   );
