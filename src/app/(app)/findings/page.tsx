@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { FileText } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SeverityBadge } from "@/components/findings/finding-form";
 import { Drawer } from "@/components/ui/drawer";
 import { Sparkline } from "@/components/ui/sparkline";
+import { FindingsFilter } from "./findings-filter";
 
 export default async function FindingsPage({
   searchParams,
@@ -130,33 +132,11 @@ export default async function FindingsPage({
         </Panel>
       </div>
 
-      {/* filters */}
-      <form className="flex flex-wrap gap-2" action="/findings">
-        <input name="q" placeholder="Search title…" defaultValue={q} className="input max-w-xs" />
-        <select name="projectId" defaultValue={projectId ?? ""} className="input w-auto">
-          <option value="">All engagements</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.code} — {p.application.name}
-            </option>
-          ))}
-        </select>
-        <select name="severity" defaultValue={severity ?? ""} className="input w-auto">
-          <option value="">All severity</option>
-          {["critical", "high", "medium", "low", "info"].map((s) => (
-            <option key={s}>{s}</option>
-          ))}
-        </select>
-        <select name="status" defaultValue={status ?? ""} className="input w-auto">
-          <option value="">All status</option>
-          {["open", "retest", "fixed", "accepted_risk", "false_positive"].map((s) => (
-            <option key={s} value={s}>
-              {s.replace(/_/g, " ")}
-            </option>
-          ))}
-        </select>
-        <button className="btn btn-secondary">Filter</button>
-      </form>
+      {/* filters (soft nav — no full reload / scroll jump) */}
+      <FindingsFilter
+        projects={projects.map((p) => ({ id: p.id, code: p.code, name: p.application.name }))}
+        defaults={{ q, projectId, severity, status }}
+      />
 
       {findings.length === 0 ? (
         <EmptyState message="No findings match this filter." />
@@ -181,7 +161,7 @@ export default async function FindingsPage({
                   <td className="truncate font-medium text-fg-primary">
                     <Drawer
                       label={f.title}
-                      triggerClass="hover:text-blue hover:underline block w-full truncate"
+                      triggerClass="hover:text-blue block w-full truncate"
                       title={f.title}
                       widthClass="max-w-2xl"
                     >
@@ -195,8 +175,12 @@ export default async function FindingsPage({
                   <td>{f.status.replace(/_/g, " ")}</td>
                   <td className="text-xs text-fg-muted">{f.tags.map((t) => t.tag.name).join(", ") || "—"}</td>
                   <td>
-                    <Link href={`/findings/${f.id}`} className="text-xs text-blue hover:underline">
-                      open →
+                    <Link
+                      href={`/findings/${f.id}`}
+                      className="inline-flex items-center gap-1 text-xs text-blue hover:text-fg-primary"
+                    >
+                      <FileText size={12} />
+                      open
                     </Link>
                   </td>
                 </tr>

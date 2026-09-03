@@ -37,7 +37,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href={`/engagements/${finding.projectId}`} className="font-mono text-sm text-fg-muted hover:underline">
+        <Link href={`/engagements/${finding.projectId}`} className="font-mono text-sm text-fg-muted hover:text-blue">
           {finding.project.code}
         </Link>
         <h1 className="font-display text-xl font-semibold">{finding.title}</h1>
@@ -66,7 +66,7 @@ export default async function FindingDetailPage({ params }: { params: Promise<{ 
         <ul className="space-y-1">
           {finding.assets.map(({ asset }) => (
             <li key={asset.id} className="flex items-center justify-between text-sm">
-              <Link href={`/assets/${asset.id}`} className="font-mono text-xs text-blue hover:underline">
+              <Link href={`/assets/${asset.id}`} className="font-mono text-xs text-blue hover:text-blue">
                 {asset.hostname ?? asset.ipAddress}
               </Link>
               <form action={unlinkFindingAsset}>

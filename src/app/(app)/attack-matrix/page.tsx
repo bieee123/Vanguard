@@ -11,7 +11,7 @@ async function LatestDettctTeaser() {
     return (
       <p className="text-fg-muted">
         No DeTT&CT snapshot imported yet —{" "}
-        <Link href="/dettct" className="text-blue hover:underline">
+        <Link href="/dettct" className="text-blue hover:text-blue">
           import one
         </Link>
         .
@@ -24,7 +24,7 @@ async function LatestDettctTeaser() {
         {run.coveredCount}/{run.totalTechniques} techniques covered
       </span>
       <span className="text-fg-muted">· Last updated: {run.importedAt.toISOString().slice(0, 16).replace("T", " ")}</span>
-      <Link href="/dettct" className="text-blue hover:underline">
+      <Link href="/dettct" className="text-blue hover:text-blue">
         full snapshot →
       </Link>
     </div>
@@ -151,7 +151,7 @@ export default async function AttackMatrixPage({
       <Panel title="Heatmap" description="Tile color = verdict of the most recent test. Click a tile for its history." toolbar>
         {tiles.size === 0 ? (
           <p className="text-sm text-fg-muted">
-            No technique data yet — log entries in the <Link href="/timeline" className="text-blue hover:underline">Timeline</Link>.
+            No technique data yet — log entries in the <Link href="/timeline" className="text-blue hover:text-blue">Timeline</Link>.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -208,7 +208,7 @@ export default async function AttackMatrixPage({
                               {t.entries.length > 5 && <p className="text-fg-muted">+{t.entries.length - 5} older…</p>}
                               <Link
                                 href={`/timeline?q=${encodeURIComponent(t.techniqueId)}`}
-                                className="text-blue hover:underline"
+                                className="text-blue hover:text-blue"
                               >
                                 open in timeline →
                               </Link>
@@ -261,7 +261,7 @@ export default async function AttackMatrixPage({
                         <span className="text-xs">
                           {latestRR.status}
                           {latestRR.status !== "verified" && latestRR.status !== "rejected" && (
-                            <Link href="/rule-requests" className="ml-2 text-blue hover:underline">
+                            <Link href="/rule-requests" className="ml-2 text-blue hover:text-blue">
                               manage
                             </Link>
                           )}

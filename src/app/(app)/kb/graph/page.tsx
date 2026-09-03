@@ -37,7 +37,7 @@ export default async function KbGraphPage() {
               {[...new Set(links.filter((l) => !l.targetId).map((l) => l.targetTitleRaw))].map((t) => (
                 <li key={t}>
                   <span className="font-mono text-signal">{t}</span>{" "}
-                  <Link href={`/kb/new?title=${encodeURIComponent(t)}`} className="text-blue hover:underline">
+                  <Link href={`/kb/new?title=${encodeURIComponent(t)}`} className="text-blue hover:text-blue">
                     create →
                   </Link>
                 </li>

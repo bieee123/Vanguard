@@ -136,7 +136,7 @@ export default async function EngagementDetailPage({
           <PhaseRail current={project.phase} />
           <span>
             App:{" "}
-            <Link href={`/applications/${project.application.id}`} className="text-blue hover:underline">
+            <Link href={`/applications/${project.application.id}`} className="text-blue hover:text-blue">
               {project.application.name}
             </Link>
           </span>
@@ -484,7 +484,7 @@ export default async function EngagementDetailPage({
               {project.assets.map(({ asset }) => (
                 <tr key={asset.id}>
                   <td className="font-mono text-xs text-fg-primary">
-                    <Link href={`/assets/${asset.id}`} className="hover:underline">
+                    <Link href={`/assets/${asset.id}`} className="hover:text-blue">
                       {asset.hostname ?? asset.ipAddress}
                     </Link>
                   </td>
@@ -532,7 +532,7 @@ export default async function EngagementDetailPage({
           <ul className="space-y-1">
             {project.findings.slice(0, 10).map((f) => (
               <li key={f.id} className="flex items-center justify-between gap-2 text-sm">
-                <Link href={`/findings/${f.id}`} className="flex-1 truncate hover:underline">
+                <Link href={`/findings/${f.id}`} className="flex-1 truncate hover:text-blue">
                   <span
                     className={
                       f.severity === "critical" || f.severity === "high" ? "text-signal mr-2" : "text-fg-muted mr-2"
@@ -597,7 +597,7 @@ export default async function EngagementDetailPage({
                     {e.timestamp.toISOString().slice(5, 16).replace("T", " ")}
                   </span>{" "}
                   {e.techniqueId && (
-                    <Link href={`/timeline?q=${encodeURIComponent(e.techniqueId)}`} className="font-mono text-violet hover:underline">
+                    <Link href={`/timeline?q=${encodeURIComponent(e.techniqueId)}`} className="font-mono text-violet hover:text-violet">
                       {e.techniqueId}
                     </Link>
                   )}{" "}
@@ -633,7 +633,7 @@ export default async function EngagementDetailPage({
           <ul className="space-y-1">
             {project.reports.map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
-                <Link href={`/reports/${r.id}`} className="flex-1 truncate hover:underline">
+                <Link href={`/reports/${r.id}`} className="flex-1 truncate hover:text-blue">
                   {r.title} <span className="ml-1 font-mono text-xs text-fg-muted">v{r.version}</span>
                 </Link>
                 <span className="text-xs text-fg-muted">{r.status}</span>

@@ -38,7 +38,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
         <ul className="space-y-1">
           {asset.engagements.map(({ project }) => (
             <li key={project.id} className="flex items-center justify-between text-sm">
-              <Link href={`/engagements/${project.id}`} className="text-blue hover:underline">
+              <Link href={`/engagements/${project.id}`} className="text-blue hover:text-blue">
                 <span className="font-mono">{project.code}</span> {project.name}
               </Link>
               <form action={unlinkAssetFromEngagement}>

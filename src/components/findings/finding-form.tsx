@@ -150,7 +150,7 @@ export function FindingForm({ action, findingId, finding, projectId, types, curr
         <textarea id="references" name="references" rows={2} className="input font-mono text-xs" defaultValue={finding?.references.join("\n") ?? ""} />
       </div>
       <button className="btn btn-primary">{submitLabel}</button>
-      <Link href="/findings" className="ml-3 text-xs text-fg-muted hover:underline">
+      <Link href="/findings" className="ml-3 text-xs text-fg-muted hover:text-blue">
         Cancel
       </Link>
     </form>

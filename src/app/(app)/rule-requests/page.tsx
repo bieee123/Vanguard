@@ -66,7 +66,7 @@ export default async function RuleRequestsPage({
           from review). You can only <span className="text-fg-primary">Submit</span> a draft and{" "}
           <span className="text-fg-primary">Verify</span> after a retest — approve/deploy happen on the Sentinel side,
           simulated here with the SIM buttons until M12 goes live. Create drafts from the{" "}
-          <Link href="/attack-matrix" className="text-blue hover:underline">
+          <Link href="/attack-matrix" className="text-blue hover:text-blue">
             Gap Report
           </Link>
           .
@@ -78,7 +78,7 @@ export default async function RuleRequestsPage({
         <Panel>
           <p className="text-sm text-fg-muted">
             No requests. Create drafts from the{" "}
-            <Link href="/attack-matrix" className="text-blue hover:underline">
+            <Link href="/attack-matrix" className="text-blue hover:text-blue">
               Gap Report
             </Link>
             .
@@ -104,7 +104,7 @@ export default async function RuleRequestsPage({
                   {rr.project && (
                     <>
                       {" · "}
-                      <Link href={`/engagements/${rr.project.id}`} className="hover:underline">
+                      <Link href={`/engagements/${rr.project.id}`} className="hover:text-blue">
                         {rr.project.code}
                       </Link>
                     </>

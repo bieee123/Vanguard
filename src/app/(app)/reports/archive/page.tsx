@@ -37,7 +37,7 @@ export default async function ReportArchivePage() {
               {reports.map((r) => (
                 <tr key={r.id}>
                   <td className="font-medium text-fg-primary">
-                    <Link href={`/reports/${r.id}`} className="hover:underline">
+                    <Link href={`/reports/${r.id}`} className="hover:text-blue">
                       {r.title}
                     </Link>
                   </td>
@@ -49,7 +49,7 @@ export default async function ReportArchivePage() {
                   <td className="font-mono text-xs">{r.archivedAt?.toISOString().slice(0, 10)}</td>
                   <td>
                     {r.filePath ? (
-                      <a href={`/api/reports/${r.id}/download`} className="text-blue hover:underline">
+                      <a href={`/api/reports/${r.id}/download`} className="text-blue hover:text-blue">
                         download
                       </a>
                     ) : (

@@ -49,7 +49,7 @@ export default async function NoteEditPage({ params }: { params: Promise<{ id: s
           </label>
           <div className="flex items-center gap-3">
             <button className="btn btn-primary">Save</button>
-            <Link href={`/kb/${note.id}`} className="text-xs text-fg-muted hover:underline">
+            <Link href={`/kb/${note.id}`} className="text-xs text-fg-muted hover:text-blue">
               Cancel
             </Link>
           </div>

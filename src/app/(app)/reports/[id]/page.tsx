@@ -46,7 +46,7 @@ export default async function ReportBuilderPage({ params }: { params: Promise<{ 
       <GenerationPoller active={busy} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <Link href={`/engagements/${report.projectId}`} className="font-mono text-sm text-fg-muted hover:underline">
+        <Link href={`/engagements/${report.projectId}`} className="font-mono text-sm text-fg-muted hover:text-blue">
           {report.project.code}
         </Link>
         <h1 className="font-display text-xl font-semibold">{report.title}</h1>
@@ -167,7 +167,7 @@ export default async function ReportBuilderPage({ params }: { params: Promise<{ 
           {report.evidence.map((e) => (
             <li key={e.id} className="flex items-center justify-between gap-2 rounded-sm bg-raised px-3 py-2 text-sm">
               <span>
-                <a href={`/api/evidence/${e.id}`} className="text-blue hover:underline">
+                <a href={`/api/evidence/${e.id}`} className="text-blue hover:text-blue">
                   {e.filePath.split("/").pop()}
                 </a>
                 {e.caption && <span className="ml-2 text-xs text-fg-muted">{e.caption}</span>}

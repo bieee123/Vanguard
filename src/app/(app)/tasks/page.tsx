@@ -137,7 +137,7 @@ export default async function TasksPage({
                 </span>
                 <form action={deleteTask}>
                   <input type="hidden" name="id" value={t.id} />
-                  <button className="text-signal hover:underline">delete</button>
+                  <button className="text-signal hover:text-signal">delete</button>
                 </form>
               </li>
             ))}

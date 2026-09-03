@@ -264,7 +264,7 @@ export default async function DashboardPage({
                 <td className="max-w-md truncate text-xs">
                   <Drawer
                     label={e.actionDescription}
-                    triggerClass="hover:text-blue hover:underline w-full block truncate"
+                    triggerClass="hover:text-blue w-full block truncate"
                     title={`${e.techniqueId ?? "entry"} — ${e.project.code}`}
                   >
                     <div className="space-y-3 text-sm">
@@ -286,7 +286,7 @@ export default async function DashboardPage({
                         {e.verdict?.confirmedByOperator ? (
                           <span className="text-xs text-teal">operator confirmed ✓</span>
                         ) : (
-                          <Link href="/timeline" className="text-xs text-blue hover:underline">
+                          <Link href="/timeline" className="text-xs text-blue hover:text-blue">
                             confirm in timeline →
                           </Link>
                         )}

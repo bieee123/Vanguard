@@ -41,7 +41,7 @@ export default async function ReportsPage() {
             <Panel key={r.id} className="flex flex-col justify-between">
               <div>
                 <div className="flex items-start justify-between gap-2">
-                  <Link href={`/reports/${r.id}`} className="font-medium text-fg-primary hover:underline">
+                  <Link href={`/reports/${r.id}`} className="font-medium text-fg-primary hover:text-fg-primary">
                     {r.title}
                   </Link>
                   <span className="shrink-0 font-mono text-xs text-fg-muted">v{r.version}</span>
@@ -59,11 +59,11 @@ export default async function ReportsPage() {
                 </p>
               </div>
               <div className="mt-3 flex gap-2 border-t border-line-subtle pt-2">
-                <Link href={`/reports/${r.id}`} className="text-xs text-blue hover:underline">
+                <Link href={`/reports/${r.id}`} className="text-xs text-blue hover:text-blue">
                   open
                 </Link>
                 {r.filePath && (
-                  <a href={`/api/reports/${r.id}/download`} className="text-xs text-blue hover:underline">
+                  <a href={`/api/reports/${r.id}/download`} className="text-xs text-blue hover:text-blue">
                     export PDF
                   </a>
                 )}

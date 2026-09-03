@@ -41,12 +41,12 @@ export default async function NoteViewPage({ params }: { params: Promise<{ id: s
 
       <div className="flex flex-wrap gap-2 text-xs text-fg-muted">
         {note.project && (
-          <Link href={`/engagements/${note.project.id}`} className="font-mono hover:underline">
+          <Link href={`/engagements/${note.project.id}`} className="font-mono hover:text-blue">
             {note.project.code}
           </Link>
         )}
         {note.tags.map((t) => (
-          <Link key={t.tag} href={`/kb?tag=${encodeURIComponent(t.tag)}`} className="text-blue hover:underline">
+          <Link key={t.tag} href={`/kb?tag=${encodeURIComponent(t.tag)}`} className="text-blue hover:text-blue">
             #{t.tag}
           </Link>
         ))}
@@ -67,7 +67,7 @@ export default async function NoteViewPage({ params }: { params: Promise<{ id: s
             <ul className="space-y-1 text-sm">
               {note.linksIn.map(({ source }) => (
                 <li key={source.id}>
-                  <Link href={`/kb/${source.id}`} className="text-blue hover:underline">
+                  <Link href={`/kb/${source.id}`} className="text-blue hover:text-blue">
                     {source.title}
                   </Link>
                 </li>
@@ -81,11 +81,11 @@ export default async function NoteViewPage({ params }: { params: Promise<{ id: s
               {note.linksOut.map((l) => (
                 <li key={l.id}>
                   {l.target ? (
-                    <Link href={`/kb/${l.target.id}`} className="text-blue hover:underline">
+                    <Link href={`/kb/${l.target.id}`} className="text-blue hover:text-blue">
                       {l.targetTitleRaw}
                     </Link>
                   ) : (
-                    <Link href={`/kb/new?title=${encodeURIComponent(l.targetTitleRaw)}`} className="text-signal hover:underline" title="broken link — click to create">
+                    <Link href={`/kb/new?title=${encodeURIComponent(l.targetTitleRaw)}`} className="text-signal hover:text-signal" title="broken link — click to create">
                       {l.targetTitleRaw} ✗
                     </Link>
                   )}

@@ -36,7 +36,7 @@ export default async function ApplicationDetailPage({
         {application.projects.length === 0 ? (
           <p className="text-sm text-fg-muted">
             No engagements yet —{" "}
-            <Link href="/engagements/new" className="text-blue hover:underline">
+            <Link href="/engagements/new" className="text-blue hover:text-blue">
               create one
             </Link>
             .
@@ -55,7 +55,7 @@ export default async function ApplicationDetailPage({
               {application.projects.map((p) => (
                 <tr key={p.id}>
                   <td className="font-mono text-fg-primary">
-                    <Link href={`/engagements/${p.id}`} className="hover:underline">
+                    <Link href={`/engagements/${p.id}`} className="hover:text-blue">
                       {p.code}
                     </Link>
                   </td>

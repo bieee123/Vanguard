@@ -124,7 +124,7 @@ export function LoginForm() {
           <div className="flex items-center justify-between text-xs">
             <button
               type="button"
-              className="text-blue hover:underline"
+              className="text-blue hover:text-blue"
               onClick={() =>
                 setStep((s) => (s === "otp" ? "recovery" : "otp"))
               }
@@ -132,7 +132,7 @@ export function LoginForm() {
               {step === "otp" ? "Use recovery code" : "Use email code"}
             </button>
             {step === "otp" && (
-              <button type="button" className="text-fg-muted hover:underline" onClick={resend}>
+              <button type="button" className="text-fg-muted hover:text-blue" onClick={resend}>
                 Resend code
               </button>
             )}
