@@ -28,10 +28,10 @@ export default async function NewNotePage({
               Engagement (optional)
             </label>
             <select id="projectId" name="projectId" className="input" defaultValue="">
-              <option value="">â€”</option>
+              <option value="">—</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.code} â€” {p.application.name}
+                  {p.code} — {p.application.name}
                 </option>
               ))}
             </select>

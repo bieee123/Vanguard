@@ -22,7 +22,7 @@ export default async function UsersPage() {
               <tr key={u.id}>
                 <td className="font-medium text-fg-primary">{u.name}</td>
                 <td className="font-mono text-xs">{u.email}</td>
-                <td>{u.twoFactorEnabled ? "âœ…" : "â€”"}</td>
+                <td>{u.twoFactorEnabled ? "Yes" : "—"}</td>
                 <td>
                   <form action={adminResetPassword} className="flex items-center gap-1">
                     <input type="hidden" name="userId" value={u.id} />

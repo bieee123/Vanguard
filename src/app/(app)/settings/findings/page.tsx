@@ -20,7 +20,7 @@ export default async function FindingsSettingsPage() {
               </span>
               <form action={deleteFindingType}>
                 <input type="hidden" name="id" value={t.id} />
-                <button className="btn btn-danger px-1.5 py-0.5 text-xs">âœ•</button>
+                <button className="btn btn-danger px-1.5 py-0.5 text-xs">✕</button>
               </form>
             </li>
           ))}
@@ -32,7 +32,7 @@ export default async function FindingsSettingsPage() {
         </form>
       </Panel>
 
-      {/* ponytail: severities are a fixed enum mapped to design tokens â€” custom weights arrive only if a report demands them */}
+      {/* ponytail: severities are a fixed enum mapped to design tokens — custom weights arrive only if a report demands them */}
       <Panel title="Severity Levels (fixed)">
         <p className="mb-3 text-xs text-fg-muted">
           Severities are fixed and color-mapped in the design system. Distribution:
@@ -44,11 +44,6 @@ export default async function FindingsSettingsPage() {
             </Badge>
           ))}
         </div>
-        <ul className="mt-4 space-y-1 text-xs text-fg-muted">
-          <li>critical Â· high â†’ Signal Red</li>
-          <li>medium â†’ Amber</li>
-          <li>low Â· info â†’ Gray</li>
-        </ul>
       </Panel>
     </div>
   );
