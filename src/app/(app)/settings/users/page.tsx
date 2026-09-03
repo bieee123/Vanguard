@@ -1,6 +1,6 @@
 ﻿import { prisma } from "@/lib/db";
 import { Panel } from "@/components/ui/panel";
-import { adminCreateUser, adminRemoveUser, adminResetPassword } from "@/server/actions/users";
+import { adminCreateUser, adminRemoveUser } from "@/server/actions/users";
 
 export default async function UsersPage() {
   const users = await prisma.user.findMany({ orderBy: { createdAt: "desc" } });
@@ -24,19 +24,7 @@ export default async function UsersPage() {
                 <td className="font-mono text-xs">{u.email}</td>
                 <td>{u.twoFactorEnabled ? "Yes" : "—"}</td>
                 <td>
-                  <form action={adminResetPassword} className="flex items-center gap-1">
-                    <input type="hidden" name="userId" value={u.id} />
-                    <input
-                      name="newPassword"
-                      type="password"
-                      required
-                      minLength={8}
-                      placeholder="new password"
-                      className="input w-32 py-0.5 text-xs"
-                    />
-                    <button className="btn btn-secondary px-1.5 py-0.5 text-xs">Reset</button>
-                  </form>
-                  <form action={adminRemoveUser} className="mt-1">
+                  <form action={adminRemoveUser}>
                     <input type="hidden" name="userId" value={u.id} />
                     <button className="btn btn-danger px-1.5 py-0.5 text-xs">Remove</button>
                   </form>
