@@ -57,7 +57,7 @@ export function KanbanBoard({ tasks }: { tasks: Record<string, BoardTask[]> }) {
             hoverCol === col.key ? "border-blue bg-blue-dim/30" : "border-line-subtle bg-panel"
           }`}
         >
-          <p className="label sticky top-0">
+          <p className="label">
             {col.label}{" "}
             <span className="font-mono text-fg-muted">{tasks[col.key]?.length ?? 0}</span>
           </p>

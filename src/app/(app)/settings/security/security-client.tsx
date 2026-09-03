@@ -85,13 +85,13 @@ export function SecurityClient({ enabled }: { enabled: boolean }) {
               Send test code
             </button>
           </div>
-          <form onSubmit={disable} className="flex gap-2 border-t border-line-subtle pt-4">
+          <form onSubmit={disable} className="flex flex-wrap items-center gap-2 border-t border-line-subtle pt-4">
             <input
               type="password"
               required
               placeholder="Confirm password to disable"
               autoComplete="current-password"
-              className="input max-w-xs"
+              className="input w-full min-w-[16rem] flex-1 sm:w-auto"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -99,13 +99,13 @@ export function SecurityClient({ enabled }: { enabled: boolean }) {
               Disable
             </button>
           </form>
-          <form onSubmit={regenerate} className="flex gap-2 border-t border-line-subtle pt-4">
+          <form onSubmit={regenerate} className="flex flex-wrap items-center gap-2 border-t border-line-subtle pt-4">
             <input
               type="password"
               required
               placeholder="Confirm password to regenerate recovery codes"
               autoComplete="current-password"
-              className="input max-w-xs"
+              className="input w-full min-w-[16rem] flex-1 sm:w-auto"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -119,18 +119,20 @@ export function SecurityClient({ enabled }: { enabled: boolean }) {
           <p className="text-sm text-fg-secondary">
             Enable by confirming your password. A 6-digit code will be emailed at every sign-in.
           </p>
-          <input
-            type="password"
-            required
-            placeholder="Password"
-            autoComplete="current-password"
-            className="input max-w-xs"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <button disabled={busy} className="btn btn-primary">
-            Enable Email OTP
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="password"
+              required
+              placeholder="Password"
+              autoComplete="current-password"
+              className="input w-full min-w-[16rem] flex-1 sm:w-auto"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button disabled={busy} className="btn btn-primary">
+              Enable Email OTP
+            </button>
+          </div>
         </form>
       )}
     </div>

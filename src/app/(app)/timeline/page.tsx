@@ -117,36 +117,44 @@ export default async function TimelinePage({
                           ` · delay ${e.verdict.detectionDelaySeconds}s`}
                       </p>
 
-                      {!e.verdict?.confirmedByOperator ? (
-                        <>
-                          <form action={confirmVerdict} className="flex items-center gap-2">
-                            <input type="hidden" name="timelineEntryId" value={e.id} />
-                            <select name="verdict" defaultValue="" className="input w-auto py-0.5 text-xs">
-                              <option value="">keep suggested</option>
-                              {VERDICTS.map((v) => (
-                                <option key={v} value={v}>
-                                  override → {v.replace(/_/g, " ")}
-                                </option>
-                              ))}
-                            </select>
-                            <button className="btn btn-teal px-2 py-0.5 text-xs">Confirm</button>
-                          </form>
-                          {e.techniqueId && (
-                            <form action={recorrelateVerdict}>
+                      {(() => {
+                        const verdict = e.verdict?.verdict;
+                        // a confirmed detection is final; anything else stays editable so
+                        // partial/not-detected verdicts can be revisited after re-testing
+                        const locked = e.verdict?.confirmedByOperator && (verdict === "detected" || verdict === "detected_late");
+                        return locked ? (
+                          <p className="text-teal">confirmed by operator ✓</p>
+                        ) : (
+                          <>
+                            <form action={confirmVerdict} className="flex items-center gap-2">
                               <input type="hidden" name="timelineEntryId" value={e.id} />
-                              <button className="text-[11px] text-blue hover:underline">
-                                re-run mock correlation
+                              <select name="verdict" defaultValue="" className="input w-auto py-0.5 text-xs">
+                                <option value="">{e.verdict?.confirmedByOperator ? "keep current" : "keep suggested"}</option>
+                                {VERDICTS.map((v) => (
+                                  <option key={v} value={v}>
+                                    set → {v.replace(/_/g, " ")}
+                                  </option>
+                                ))}
+                              </select>
+                              <button className="btn btn-teal px-2 py-0.5 text-xs">
+                                {e.verdict?.confirmedByOperator ? "Update verdict" : "Confirm"}
                               </button>
                             </form>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-teal">confirmed by operator ✓</p>
-                      )}
+                            {e.techniqueId && (
+                              <form action={recorrelateVerdict}>
+                                <input type="hidden" name="timelineEntryId" value={e.id} />
+                                <button className="text-[11px] text-blue hover:text-blue">
+                                  re-run correlation
+                                </button>
+                              </form>
+                            )}
+                          </>
+                        );
+                      })()}
 
                       <form action={deleteTimelineEntry}>
                         <input type="hidden" name="id" value={e.id} />
-                        <button className="text-[11px] text-signal hover:underline">delete entry</button>
+                        <button className="text-[11px] text-signal hover:text-signal">delete entry</button>
                       </form>
                     </div>
                   </details>
